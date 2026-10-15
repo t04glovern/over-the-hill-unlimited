@@ -1,0 +1,21 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Per-machine build settings
+Config.Build.user.props
+
+# Decompiled game code (regenerate with tools/Dump-GameCode.ps1; never commit game code)
+.dump/
+tools/bin/
