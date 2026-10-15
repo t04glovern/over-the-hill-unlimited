@@ -34,17 +34,18 @@ public class Plugin : BasePlugin
 
         if (ConfigExpandPlayerSlots.Value)
         {
-            // Let the host pick more than 4 players and make Fusion honour it
-            _harmony.PatchAll(typeof(CreateServerMenuPatch));
-            _harmony.PatchAll(typeof(SessionSizePatches));
-
-            // Give the game's fixed-size networked player state room for more players
-            _harmony.PatchAll(typeof(SessionPlayersCapacityPatches));
-            _harmony.PatchAll(typeof(MapNetworkCapacityPatches));
-            _harmony.PatchAll(typeof(CampCapacityPatches));
-
-            // Keep UIs built for 4 players working against the larger player list
-            _harmony.PatchAll(typeof(PlayerListUiPatches));
+            try
+            {
+                ApplyPlayerCapPatches();
+            }
+            catch (System.Exception e)
+            {
+                // All or nothing: a half-patched game is worse than a vanilla one
+                _harmony.UnpatchSelf();
+                Logger.LogError($"Couldn't apply the player cap patches, so the mod is disabled. " +
+                                $"The game has probably been updated.\n{e}");
+                return;
+            }
         }
         else
         {
@@ -56,6 +57,24 @@ public class Plugin : BasePlugin
 
         Logger.LogInfo($"{Name} {Version} loaded (ExpandPlayerSlots={ConfigExpandPlayerSlots.Value}, " +
                        $"MaxPlayers={ConfigMaxPlayers.Value}, {ExpandedState.Capacity} player slots)");
+    }
+
+    private void ApplyPlayerCapPatches()
+    {
+        // Let the host pick more than 4 players and make Fusion honour it
+        _harmony.PatchAll(typeof(CreateServerMenuPatch));
+        _harmony.PatchAll(typeof(SessionSizePatches));
+
+        // Give the game's fixed-size networked player state room for more players
+        _harmony.PatchAll(typeof(SessionPlayersCapacityPatches));
+        _harmony.PatchAll(typeof(MapNetworkCapacityPatches));
+        _harmony.PatchAll(typeof(CampCapacityPatches));
+
+        // Pad game data with one entry per player (meteorite setups, lobby spawn points)
+        _harmony.PatchAll(typeof(PerPlayerTablePatches));
+
+        // Keep UIs built for 4 players working against the larger player list
+        _harmony.PatchAll(typeof(PlayerListUiPatches));
     }
 
     private void BindConfig()

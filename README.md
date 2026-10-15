@@ -15,12 +15,15 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 |---|---|
 | Host can pick up to 16 in Create Server, Max Players | Verified |
 | Photon Fusion room uses that size (`1/8 players`) | Verified |
+| A 5th player can join | Verified |
 | Networked player list (order, colours, names) holds 16 players | Verified solo |
 | Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
+| Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; fixed, retest needed |
 | Pause menu, map, compass and car health UI | Working, but they only show the first 4 players |
-| Two modded players in one session | Untested |
-| A 5th player joining and playing | Untested |
+| Car repair and tool selection menus with 5+ players | Untested, may break (they size their UI by player count) |
+| Native Linux (not Proton) | Joining crashed in 0.1.0; fixed, untested |
+| Players without the mod in a modded session | Unknown |
 
 ## Installation
 
@@ -99,7 +102,10 @@ Create Server menu ──► GameSetupContext.MaxPlayers ──X   game always p
   `GameSetupContext.MaxPlayers` itself.
 - The game ignores that value when it starts Fusion. It always passes `StartGameArgs.PlayerCount = 4` and enforces
   smaller choices on its own. `SessionSizePatches` remembers the menu value in `OverlandNetworkRunner.StartGame`.
-  It then writes that value into `StartGameArgs.PlayerCount` in a prefix on Fusion's `NetworkRunner.StartGame`.
+  It then writes that value into the copy of `StartGameArgs` that Fusion's `StartGameModeCloud` async method keeps in
+  its state machine. That happens on the state machine's first `MoveNext()`, before the Photon room is created from it.
+  (Patching `NetworkRunner.StartGame(StartGameArgs)` directly works on Windows but crashes on native Linux; see
+  [Gotchas](#gotchas).)
 - It also raises Fusion's default player count, `NetworkProjectConfig.Simulation.PlayerCount` (shipped as 4), to 16
   on every modded peer.
 
@@ -150,6 +156,16 @@ Some UIs keep one element per player but loop over the whole player list. With 1
 its first 4 slots while those UI methods run. The compass and car health UI get the same treatment as a precaution. They
 all work as before, but players 5 and up don't appear in them yet.
 
+### 4. Game data sized for 4 players
+
+Some game data has one entry per player, and the code indexes it by player count or slot. With 5 players, it reads
+past the end. `PerPlayerTablePatches` pads each table up to 16 entries the first time the game reads it:
+
+- `MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount`, indexed by `ActivePlayers.Count()`, gets copies of
+  its 4-player entry.
+- `Lobby.spawnPoints`, indexed by the player's slot, gets clones of the 4 vanilla spawn points, in extra rows 8 m in
+  front of them. Their placeholder car previews are hidden.
+
 ### Why everyone needs the mod
 
 PEAK uses Photon PUN, where raising the room size on the host is enough. Here, the appended words change the size of
@@ -161,6 +177,8 @@ host's session.
 
 - The mod checks each behaviour's vanilla word count at runtime. If a game update changes it, the mod logs an error and
   leaves that behaviour at 4 slots, rather than writing to a layout it doesn't understand.
+- If any patch fails to apply, for example because a game update renamed a method, the mod removes all of its patches
+  and logs an error. A half-patched game is worse than a vanilla one.
 - `ExpandPlayerSlots = false` turns every patch off.
 
 ## Development
@@ -194,6 +212,7 @@ src/OverTheHillUnlimited/
     SessionPlayersCapacityPatches.cs  OverlandSessionPlayers
     MapNetworkCapacityPatches.cs      MapNetworkManager
     CampCapacityPatches.cs            CampManager
+    PerPlayerTablePatches.cs          game data with one entry per player
     PlayerListUiPatches.cs            UIs built for 4 players
     SessionDiagnosticsPatches.cs      VerboseLogging output
 tools/
@@ -233,6 +252,12 @@ Logs:
   unrelated methods. Patch `NetworkBehaviourUtils.GetWordCount` instead.
 - The interop wrapper misreports `StartGameArgs.PlayerCount` (a `Nullable<int>`) as 0, so `SessionSizePatches` reads
   the raw struct.
+- Don't patch methods that take a large struct by value, such as `NetworkRunner.StartGame(StartGameArgs)`. On Windows
+  (Microsoft x64) the struct arrives as a pointer to a copy. On Linux (System V) it's copied onto the stack, which
+  Il2CppInterop's trampolines don't handle, so native Linux crashes with a SIGSEGV. Patch somewhere that holds the struct
+  in a field or behind a pointer instead.
+- On native Linux, BepInEx's `UnityLogListening` crashed the game at startup for one tester. Setting
+  `UnityLogListening = false` in `BepInEx/config/BepInEx.cfg` worked around it.
 - Anything that moves a `[Networked]` property's data out of its woven range also hides it from `ChangeDetector`, and from
   any `[OnChangedRender]` callback, which works the same way. See the change-signal note under
   [How it works](#2-fixed-size-networked-state).
@@ -240,12 +265,13 @@ Logs:
 ## Roadmap
 
 - [x] Make Fusion's change detection notice changes in the appended state (map pins redrew late)
-- [ ] Test with 2 modded players to confirm the appended state syncs
-- [ ] Test with 5 or more players and fix what breaks. Likely candidates are the game's own join check
-      (`OverlandNetworkRunner.OnConnectRequest`), lobby spawn points (`Lobby.spawnPoints`) and player colours
-      (`UIManager.GetPlayerColor`).
-- [ ] Give the 4-slot UIs more elements so players 5 and up show up
 - [x] Release builds
+- [x] First 5-player session: a 5th player joined; lobby spawn points and meteorite setups errored, now padded
+- [ ] Retest 5+ players with all modded, and confirm the appended state syncs between them
+- [ ] Check the car repair and tool selection menus with 5+ players, and player colours (`UIManager.GetPlayerColor`)
+- [ ] Decide on players without the mod: keep them out (a separate Photon AppVersion), or keep the vanilla 4-slot
+      state readable for them
+- [ ] Give the 4-slot UIs more elements so players 5 and up show up
 
 ## Credits
 
