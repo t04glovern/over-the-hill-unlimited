@@ -19,10 +19,10 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Networked player list (order, colours, names) holds 16 players | Verified solo |
 | Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
-| Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; fixed, retest needed |
+| Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
 | Pause menu, map, compass and car health UI | Working, but they only show the first 4 players |
 | Car repair and tool selection menus with 5+ players | Untested, may break (they size their UI by player count) |
-| Native Linux (not Proton) | Joining crashed in 0.1.0; fixed, untested |
+| Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod in a modded session | Unknown |
 
 ## Installation
