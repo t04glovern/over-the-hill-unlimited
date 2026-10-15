@@ -1,11 +1,12 @@
 using HarmonyLib;
+using UnityEngine;
 
 namespace OverTheHillUnlimited.Patches;
 
 /// <summary>
-/// Adds player counts above 4 to the host's Create Server "Max Players" selector. The game itself int.Parse()s
-/// the selected entry into GameSetupContext.MaxPlayers (ContextUICreateServer.SetGameSetupContextValues), and
-/// SessionSizePatches carries that value into Fusion.
+/// Offers player counts above 4 in the host's Create Server "Max Players" selector while Unlimited mode is on, and
+/// only the vanilla 2-4 while it's off. The game itself int.Parse()s the selected entry into GameSetupContext.MaxPlayers
+/// (ContextUICreateServer.SetGameSetupContextValues), and SessionSizePatches carries that value into Fusion.
 /// </summary>
 public class CreateServerMenuPatch
 {
@@ -13,33 +14,46 @@ public class CreateServerMenuPatch
     [HarmonyPostfix]
     static void Postfix(ContextUICreateServer __instance)
     {
-        var options = __instance.maxPlayersOptionsRange;
-        var selector = __instance.MaxPlayersOptionSelector;
+        Apply(__instance);
+    }
+
+    /// <summary>Re-applies the options to any open Create Server menu, after Unlimited mode changes.</summary>
+    public static void ApplyToOpenMenus()
+    {
+        foreach (var menu in Object.FindObjectsOfType<ContextUICreateServer>())
+            Apply(menu);
+    }
+
+    static void Apply(ContextUICreateServer menu)
+    {
+        var options = menu.maxPlayersOptionsRange;
+        var selector = menu.MaxPlayersOptionSelector;
         if (options == null || selector == null)
         {
             Plugin.Logger.LogWarning("Create Server menu has no Max Players selector, leaving it alone");
             return;
         }
 
-        // Vanilla offers "2", "3", "4"
-        int highest = 0;
-        for (int i = 0; i < options.Count; i++)
+        // Back to the vanilla "2", "3", "4", then extend if Unlimited mode is on
+        for (int i = options.Count - 1; i >= 0; i--)
         {
-            if (int.TryParse(options[i], out int value) && value > highest)
-                highest = value;
+            if (!int.TryParse(options[i], out int value))
+            {
+                Plugin.Logger.LogWarning("Max Players options aren't plain numbers any more, leaving them alone");
+                return;
+            }
+            if (value > Plugin.VanillaMaxPlayers)
+                options.RemoveAt(i);
         }
-        if (highest == 0)
+        if (UnlimitedMode.Enabled)
         {
-            Plugin.Logger.LogWarning("Max Players options aren't plain numbers any more, leaving them alone");
-            return;
+            for (int count = Plugin.VanillaMaxPlayers + 1; count <= Plugin.ConfigMaxPlayers.Value; count++)
+                options.Add(count.ToString());
         }
 
-        int target = Plugin.ConfigMaxPlayers.Value;
-        if (target <= highest)
-            return;
-
-        for (int count = highest + 1; count <= target; count++)
-            options.Add(count.ToString());
-        selector.Initialize(options, __instance.maxPlayersOptionsSelectedIndex);
+        // SetGameSetupContextValues indexes the options with this, so keep it in range
+        int selected = Mathf.Clamp(menu.maxPlayersOptionsSelectedIndex, 0, options.Count - 1);
+        menu.maxPlayersOptionsSelectedIndex = selected;
+        selector.Initialize(options, selected);
     }
 }

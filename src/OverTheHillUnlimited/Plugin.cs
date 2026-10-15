@@ -32,35 +32,32 @@ public class Plugin : BasePlugin
 
         _harmony = new Harmony(Id);
 
-        if (ConfigExpandPlayerSlots.Value)
+        // Always applied: the patches check UnlimitedMode at runtime, so it can be switched in the server browser
+        try
         {
-            try
-            {
-                ApplyPlayerCapPatches();
-            }
-            catch (System.Exception e)
-            {
-                // All or nothing: a half-patched game is worse than a vanilla one
-                _harmony.UnpatchSelf();
-                Logger.LogError($"Couldn't apply the player cap patches, so the mod is disabled. " +
-                                $"The game has probably been updated.\n{e}");
-                return;
-            }
+            ApplyPlayerCapPatches();
         }
-        else
+        catch (System.Exception e)
         {
-            Logger.LogInfo("ExpandPlayerSlots is off, sessions stay at the vanilla 4 players");
+            // All or nothing: a half-patched game is worse than a vanilla one
+            _harmony.UnpatchSelf();
+            Logger.LogError($"Couldn't apply the player cap patches, so the mod is disabled. " +
+                            $"The game has probably been updated.\n{e}");
+            return;
         }
 
         if (ConfigVerboseLogging.Value)
             _harmony.PatchAll(typeof(SessionDiagnosticsPatches));
 
-        Logger.LogInfo($"{Name} {Version} loaded (ExpandPlayerSlots={ConfigExpandPlayerSlots.Value}, " +
+        Logger.LogInfo($"{Name} {Version} loaded (Unlimited mode {(UnlimitedMode.Enabled ? "on" : "off")}, " +
                        $"MaxPlayers={ConfigMaxPlayers.Value}, {ExpandedState.Capacity} player slots)");
     }
 
     private void ApplyPlayerCapPatches()
     {
+        // Switch Unlimited mode from a checkbox in the server browser
+        _harmony.PatchAll(typeof(ServerBrowserTogglePatches));
+
         // Let the host pick more than 4 players and make Fusion honour it
         _harmony.PatchAll(typeof(CreateServerMenuPatch));
         _harmony.PatchAll(typeof(SessionSizePatches));
@@ -94,10 +91,11 @@ public class Plugin : BasePlugin
             "General",
             "ExpandPlayerSlots",
             true,
-            "Raise the player cap above 4 by giving the game's networked player state more slots. " +
-            "Changes the network layout, so every player in the session needs the mod with this enabled. " +
-            "While it's on you only see and join servers of players running the same mod version. " +
-            "Turn it off to play with people who don't have the mod (vanilla behaviour, 4 players max).");
+            "Unlimited mode: raise the player cap above 4 by giving the game's networked player state more slots. " +
+            "Every player in the session needs the mod with this on, and while it's on you only see and join " +
+            "servers of players running the same mod version. Turn it off to play with people who don't have the " +
+            "mod (vanilla behaviour, 4 players max). You can also switch it in game with the " +
+            "\"Unlimited mod servers\" checkbox in the server browser.");
 
         ConfigVerboseLogging = Config.Bind(
             "Debug",

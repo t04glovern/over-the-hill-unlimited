@@ -60,7 +60,7 @@ internal sealed class ExpandedState
     /// <summary>Call from a NetworkBehaviourUtils.GetWordCount postfix.</summary>
     public void ExpandIf<T>(NetworkBehaviour behaviour, ref int wordCount) where T : Il2CppObjectBase
     {
-        if (behaviour == null || behaviour.TryCast<T>() == null)
+        if (!UnlimitedMode.Enabled || behaviour == null || behaviour.TryCast<T>() == null)
             return;
 
         if (wordCount != _vanillaWordCount)

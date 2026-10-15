@@ -9,7 +9,7 @@ namespace OverTheHillUnlimited.Patches;
 /// sets up an object from the server, Fusion's InitializeNetworkObjectInstance asserts that its word count matches the
 /// client's own. So modded players connect to Photon with a different AppVersion, and Photon only matches players
 /// with the same AppVersion: unmodded players never see or join modded servers, and modded players don't see vanilla
-/// ones. With ExpandPlayerSlots off this patch isn't applied, so the mod is back on the vanilla AppVersion.
+/// ones. With Unlimited mode off the AppVersion is left alone, so you're back with vanilla players.
 /// </summary>
 public class ModdedLobbyPatches
 {
@@ -26,7 +26,7 @@ public class ModdedLobbyPatches
     [HarmonyPostfix]
     static void Postfix(FusionAppSettings __result)
     {
-        if (__result == null || (__result.AppVersion?.EndsWith(AppVersionSuffix) ?? false))
+        if (!UnlimitedMode.Enabled || __result == null || (__result.AppVersion?.EndsWith(AppVersionSuffix) ?? false))
             return;
 
         __result.AppVersion += AppVersionSuffix;

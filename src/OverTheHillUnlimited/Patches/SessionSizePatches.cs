@@ -33,7 +33,7 @@ public class SessionSizePatches
     static void StartGameModeCloudPrefix(NetworkRunner._StartGameModeCloud_d__481 __instance)
     {
         // Only the first step, before anything has read the args
-        if (__instance.__1__state != -1)
+        if (!UnlimitedMode.Enabled || __instance.__1__state != -1)
             return;
 
         // A boxed copy: changes only reach Fusion once it's assigned back to the field

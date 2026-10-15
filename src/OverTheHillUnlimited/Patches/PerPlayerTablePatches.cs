@@ -18,6 +18,8 @@ public class PerPlayerTablePatches
     [HarmonyPrefix]
     static void PadMeteoriteSetups(MeteoriteSpawnController __instance)
     {
+        if (!UnlimitedMode.Enabled)
+            return;
         var setups = __instance.meteoriteSpawnConfig?.SpawnableMeteoritesByPlayersCount;
         if (setups == null || setups.Count == 0 || setups.Count > ExpandedState.Capacity)
             return;
@@ -33,6 +35,8 @@ public class PerPlayerTablePatches
     [HarmonyPrefix]
     static void PadLobbySpawnPoints(Lobby __instance)
     {
+        if (!UnlimitedMode.Enabled)
+            return;
         var spawnPoints = __instance.spawnPoints;
         if (spawnPoints == null || spawnPoints.Count == 0 || spawnPoints.Count >= ExpandedState.Capacity)
             return;

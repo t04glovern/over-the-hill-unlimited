@@ -23,13 +23,16 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Pause menu, map, compass and car health UI | Working, but they only show the first 4 players |
 | Car repair and tool selection menus with 5+ players | Untested, may break (they size their UI by player count) |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
-| Players without the mod | Kept out from 0.1.2: modded and unmodded players don't see each other's servers; untested |
+| Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
+| Switching between modded and vanilla in game | "Unlimited mod servers" checkbox in the server browser; untested |
 
 ## Installation
 
-Everyone in the session needs to do this, not just the host, and everyone needs the same mod version. With the mod
-installed you only see servers of other players who have it. To join an unmodded friend's server, see
-[Configuration](#configuration).
+Everyone in the session needs to do this, not just the host, and everyone needs the same mod version.
+
+The server browser gets an **Unlimited mod servers** checkbox next to its filters. While it's ticked, you only see and
+host modded servers, with up to 16 players. Untick it to see vanilla servers and play with friends who don't have the
+mod (4 players max). Your choice is remembered.
 
 ### Windows
 
@@ -85,7 +88,7 @@ To uninstall, clear the launch option, then untick the compatibility option to g
 | Setting | Default | Description |
 |---|---|---|
 | `General.MaxPlayers` | `8` | Highest option in the Max Players menu, 1 to 16. |
-| `General.ExpandPlayerSlots` | `true` | Master switch. Turn it off to play vanilla with people who don't have the mod (4 players max), including joining their servers. |
+| `General.ExpandPlayerSlots` | `true` | Unlimited mode, the same setting as the **Unlimited mod servers** checkbox in the server browser. Off means vanilla behaviour, for playing with people who don't have the mod (4 players max). |
 | `Debug.VerboseLogging` | `false` | Log the session size and player list as players join and leave. Useful for testing. |
 
 ## How it works
@@ -181,7 +184,22 @@ game's AppVersion plus a suffix built from the layout, e.g. `-unlimited.16.1250.
 settings in `OverlandNetworkRunner.BuildCustomAppSetting`, for both the server browser and starting a session, and a
 postfix appends the suffix there. Photon only matches players with the same AppVersion, so unmodded players never see
 or join modded servers, and modded players don't see vanilla ones. Mod versions whose layouts differ are kept apart
-the same way. With `ExpandPlayerSlots` off, the patch isn't applied and the game uses its vanilla AppVersion.
+the same way. With Unlimited mode off, the AppVersion is left alone, so you're matched with vanilla players again.
+
+### Switching modes
+
+`UnlimitedMode` is a runtime switch, saved as `ExpandPlayerSlots`. Every patch is applied at startup either way. The
+patches that change the network layout (`GetWordCount`), matchmaking (AppVersion), the session size, the Max Players
+options and the per-player tables check the switch. The rest follow from whether an object actually got bigger, so with
+the switch off the game behaves exactly as vanilla. Networked objects keep the layout they were created with, so the
+switch only changes outside a session.
+
+`ServerBrowserTogglePatches` adds the **Unlimited mod servers** checkbox. When the server list starts, it clones the
+game's own "Hide private servers" filter. It places the clone after that filter, following the same step as the
+game's first two filters (unless a layout group arranges them), and splices it into controller navigation.
+`ContextUIServerList.SetFilterChecked` draws the tick. Clicking it flips the switch and re-applies the Max Players options
+to any open Create Server menu. It then calls `ContextUIServerList.ServerRegionOnChanged` with the current region, the
+same path as picking a region. That reconnects the lobby with the new AppVersion, and the list repopulates.
 
 ### Safety
 
@@ -189,7 +207,7 @@ the same way. With `ExpandPlayerSlots` off, the patch isn't applied and the game
   leaves that behaviour at 4 slots, rather than writing to a layout it doesn't understand.
 - If any patch fails to apply, for example because a game update renamed a method, the mod removes all of its patches
   and logs an error. A half-patched game is worse than a vanilla one.
-- `ExpandPlayerSlots = false` turns every patch off.
+- With Unlimited mode off, every patch leaves the game's behaviour vanilla.
 
 ## Development
 
@@ -215,6 +233,7 @@ locked. If the game isn't in the default Steam location, copy `Config.Build.user
 ```
 src/OverTheHillUnlimited/
   Plugin.cs                           entry point, config, patch registration
+  UnlimitedMode.cs                    the modded/vanilla switch
   Networking/ExpandedState.cs         appended state layout and collection construction
   Patches/
     CreateServerMenuPatch.cs          Max Players menu options
@@ -224,6 +243,7 @@ src/OverTheHillUnlimited/
     CampCapacityPatches.cs            CampManager
     PerPlayerTablePatches.cs          game data with one entry per player
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
+    ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PlayerListUiPatches.cs            UIs built for 4 players
     SessionDiagnosticsPatches.cs      VerboseLogging output
 tools/
