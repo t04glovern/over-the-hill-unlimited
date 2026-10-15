@@ -29,7 +29,11 @@ Everyone in the session needs to do this, not just the host.
 1. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
 2. **Install BepInEx.** Download
    [BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip)
-   and extract it into the game folder, so that `winhttp.dll` sits next to `over the hill.exe`.
+   and extract it into the game folder, so that `winhttp.dll` sits next to `over the hill.exe`. Your game folder
+   should then look like this:
+
+   ![Game folder with BepInEx installed: BepInEx and dotnet folders, plus winhttp.dll, doorstop_config and .doorstop_version, next to over the hill.exe](docs/mod-installed.png)
+
 3. **Run the game once**, wait for the main menu, then quit. The first launch takes a minute or two longer than usual.
 4. **Install the mod.** Download `OverTheHillUnlimited-<version>.zip` from
    [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases) and extract it into the game folder.
