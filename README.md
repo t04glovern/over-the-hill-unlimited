@@ -7,6 +7,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 > networked player state has room for 16. That's been verified hosting solo. Sessions with real players haven't
 > been tested yet.
 
+**Download:** [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases). See [Installation](#installation).
+
 ## Status
 
 | Piece | State |
@@ -22,20 +24,19 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 
 ## Installation
 
-**Every player in the session needs the mod**, unlike PEAK Unlimited where only the host does.
-See [why everyone needs the mod](#why-everyone-needs-the-mod).
+Everyone in the session needs to do this, not just the host.
 
-1. Download BepInEx 6 bleeding edge for IL2CPP, build #788:
-   `BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip` from <https://builds.bepinex.dev/projects/bepinex_be>.
-   BepInEx 5 won't work, because the game is an IL2CPP build.
-2. Extract it into the game folder, next to `over the hill.exe`. In Steam: Over the Hill, Manage, Browse local files.
-3. Launch the game once and quit. The first launch takes a minute or two while BepInEx generates its interop assemblies.
-4. Put `OverTheHillUnlimited.dll` in `BepInEx/plugins/OverTheHillUnlimited/`. There are no release builds yet, so
-   [build it yourself](#development).
-5. When hosting, Create Server's Max Players now goes above 4.
+1. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
+2. **Install BepInEx.** Download
+   [BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip)
+   and extract it into the game folder, so that `winhttp.dll` sits next to `over the hill.exe`.
+3. **Run the game once**, wait for the main menu, then quit. The first launch takes a minute or two longer than usual.
+4. **Install the mod.** Download `OverTheHillUnlimited-<version>.zip` from
+   [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases) and extract it into the game folder.
+   You should end up with `BepInEx\plugins\OverTheHillUnlimited\OverTheHillUnlimited.dll`.
+5. **Play.** The host picks a Max Players above 4 under Create Server.
 
-To disable BepInEx, delete `winhttp.dll` from the game folder. To remove it completely, also delete `doorstop_config.ini`,
-`.doorstop_version`, `changelog.txt`, `BepInEx/` and `dotnet/`.
+To uninstall, delete `winhttp.dll` from the game folder.
 
 ## Configuration
 
@@ -160,8 +161,19 @@ src/OverTheHillUnlimited/
     CampCapacityPatches.cs            CampManager
     PlayerListUiPatches.cs            UIs built for 4 players
     SessionDiagnosticsPatches.cs      VerboseLogging output
-tools/Dump-GameCode.ps1               dump the game's code with Cpp2IL
+tools/
+  Build-Release.ps1                   build and package a release zip
+  Dump-GameCode.ps1                   dump the game's code with Cpp2IL
 ```
+
+### Releasing
+
+1. Bump `<Version>` in `src/OverTheHillUnlimited/OverTheHillUnlimited.csproj`. The plugin's BepInEx version is generated
+   from it.
+2. Run `powershell -File tools/Build-Release.ps1`. It builds Release and writes
+   `artifacts/OverTheHillUnlimited-<version>.zip`, laid out to extract straight into the game folder.
+3. Commit and push, then publish the zip:
+   `gh release create v<version> artifacts/OverTheHillUnlimited-<version>.zip --title "v<version>" --notes "..."`
 
 ### Reading the game's code
 
@@ -196,7 +208,7 @@ Logs:
       (`OverlandNetworkRunner.OnConnectRequest`), lobby spawn points (`Lobby.spawnPoints`) and player colours
       (`UIManager.GetPlayerColor`).
 - [ ] Give the 4-slot UIs more elements so players 5 and up show up
-- [ ] Release builds
+- [x] Release builds
 
 ## Credits
 

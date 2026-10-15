@@ -13,7 +13,7 @@ public class Plugin : BasePlugin
 {
     public const string Id = "OverTheHillUnlimited";
     public const string Name = "Over the Hill Unlimited";
-    public const string Version = "0.1.0";
+    public const string Version = PluginVersion.Value; // set by <Version> in the csproj
 
     // Vanilla sessions are capped at 4, and the game's per-player networked state is sized to match
     public const int VanillaMaxPlayers = 4;

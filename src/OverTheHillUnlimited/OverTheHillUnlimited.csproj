@@ -45,6 +45,21 @@
         <Reference Include="@(InteropReferences)" Private="false" />
     </ItemGroup>
 
+    <!-- Generates PluginVersion.Value from <Version> above, so the BepInPlugin version can't drift from it -->
+    <Target Name="GeneratePluginVersion" BeforeTargets="BeforeCompile;CoreCompile">
+        <PropertyGroup>
+            <PluginVersionFile>$(IntermediateOutputPath)PluginVersion.g.cs</PluginVersionFile>
+        </PropertyGroup>
+        <WriteLinesToFile File="$(PluginVersionFile)"
+                          Lines="// &lt;auto-generated/&gt; from the Version property in OverTheHillUnlimited.csproj;namespace OverTheHillUnlimited%3B;internal static class PluginVersion { public const string Value = &quot;$(Version)&quot;%3B }"
+                          Overwrite="true"
+                          WriteOnlyWhenDifferent="true" />
+        <ItemGroup>
+            <Compile Include="$(PluginVersionFile)" />
+            <FileWrites Include="$(PluginVersionFile)" />
+        </ItemGroup>
+    </Target>
+
     <Target Name="CheckBepInExInstalled" BeforeTargets="ResolveAssemblyReferences">
         <Error Condition="!Exists('$(BepInExCoreDir)BepInEx.Unity.IL2CPP.dll')"
                Text="BepInEx 6 IL2CPP not found in '$(GameDir)'. Install it (see README) or set GameDir in Config.Build.user.props." />
