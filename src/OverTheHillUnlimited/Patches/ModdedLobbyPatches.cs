@@ -30,7 +30,11 @@ public class ModdedLobbyPatches
             return;
 
         __result.AppVersion += AppVersionSuffix;
-        Plugin.Logger.LogInfo($"Using Photon AppVersion '{__result.AppVersion}', so only players with this mod " +
-                              "version can see this server");
+        if (!_logged)
+            Plugin.Logger.LogInfo($"Using Photon AppVersion '{__result.AppVersion}' in Unlimited mode, so only " +
+                                  "players with this mod version see each other's servers");
+        _logged = true;
     }
+
+    static bool _logged;
 }

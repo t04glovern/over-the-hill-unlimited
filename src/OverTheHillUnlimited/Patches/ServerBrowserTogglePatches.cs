@@ -13,8 +13,29 @@ public class ServerBrowserTogglePatches
 {
     const string Label = "Unlimited mod servers";
 
+    // After a click the lobby reconnects in the background; clicks during that overlapped reconnects and the list
+    // could end up showing the other pool. The checkbox is disabled until the lobby is back, within these bounds.
+    const float MinReconnectSeconds = 1f;
+    const float MaxReconnectSeconds = 10f;
+
     static ContextUIButtonSelectorWithTextAndIcon _toggle;
     static bool? _shownChecked;
+    static bool? _shownInteractable;
+    static float _lastClickTime = float.NegativeInfinity;
+
+    static bool Reconnecting
+    {
+        get
+        {
+            float elapsed = Time.unscaledTime - _lastClickTime;
+            if (elapsed >= MaxReconnectSeconds)
+                return false;
+            if (elapsed < MinReconnectSeconds)
+                return true;
+            var runner = OverlandNetworkRunner.Instance;
+            return runner != null && !runner.IsConnectedToLobby;
+        }
+    }
 
     [HarmonyPatch(typeof(ContextUIServerList), nameof(ContextUIServerList.Start))]
     [HarmonyPostfix]
@@ -41,10 +62,11 @@ public class ServerBrowserTogglePatches
         _toggle.buttonSelector.add_OnPointerClickOrSubmit((System.Action<UIButtonSelector>)(_ => OnClicked(__instance)));
         LinkNavigation(template.buttonSelector, _toggle.buttonSelector, horizontal: Mathf.Abs(step.x) > Mathf.Abs(step.y));
         _shownChecked = null;
+        _shownInteractable = null;
         Refresh();
     }
 
-    // Keeps the label and tick right every frame, in case the game's localisation rewrites the cloned label
+    // Keeps the label, tick and enabled state right every frame, in case the game's localisation rewrites the label
     [HarmonyPatch(typeof(ContextUIServerList), nameof(ContextUIServerList.LateUpdate))]
     [HarmonyPostfix]
     static void Refresh()
@@ -61,15 +83,23 @@ public class ServerBrowserTogglePatches
             ContextUIServerList.SetFilterChecked(_toggle, enabled);
             _shownChecked = enabled;
         }
+
+        bool interactable = !Reconnecting;
+        if (_shownInteractable != interactable)
+        {
+            _toggle.buttonSelector.interactable = interactable;
+            _shownInteractable = interactable;
+        }
     }
 
     static void OnClicked(ContextUIServerList serverList)
     {
-        if (!UnlimitedMode.TrySetEnabled(!UnlimitedMode.Enabled))
+        if (Reconnecting || !UnlimitedMode.TrySetEnabled(!UnlimitedMode.Enabled))
             return;
 
+        _lastClickTime = Time.unscaledTime;
         Refresh();
-        CreateServerMenuPatch.ApplyToOpenMenus();
+        CreateServerMenuPatch.ApplyToOpenMenu();
 
         // Reconnect to the lobby the way changing region does, so the new AppVersion takes effect
         var dropdown = serverList.RegionSelectionDropdown;

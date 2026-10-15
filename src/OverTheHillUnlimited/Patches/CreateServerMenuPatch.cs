@@ -1,5 +1,4 @@
 using HarmonyLib;
-using UnityEngine;
 
 namespace OverTheHillUnlimited.Patches;
 
@@ -10,40 +9,49 @@ namespace OverTheHillUnlimited.Patches;
 /// </summary>
 public class CreateServerMenuPatch
 {
+    // Kept so a mode switch reaches it even while its tab is hidden (FindObjectsOfType skips inactive objects)
+    static ContextUICreateServer _menu;
+
     [HarmonyPatch(typeof(ContextUICreateServer), nameof(ContextUICreateServer.Start))]
     [HarmonyPostfix]
     static void Postfix(ContextUICreateServer __instance)
     {
+        _menu = __instance;
         Apply(__instance);
     }
 
-    /// <summary>Re-applies the options to any open Create Server menu, after Unlimited mode changes.</summary>
-    public static void ApplyToOpenMenus()
+    /// <summary>Re-applies the options to the Create Server menu, if one exists, after Unlimited mode changes.</summary>
+    public static void ApplyToOpenMenu()
     {
-        foreach (var menu in Object.FindObjectsOfType<ContextUICreateServer>())
-            Apply(menu);
+        if (_menu != null)
+            Apply(_menu);
     }
 
     static void Apply(ContextUICreateServer menu)
     {
-        var options = menu.maxPlayersOptionsRange;
+        var current = menu.maxPlayersOptionsRange;
         var selector = menu.MaxPlayersOptionSelector;
-        if (options == null || selector == null)
+        if (current == null || current.Count == 0 || selector == null)
         {
             Plugin.Logger.LogWarning("Create Server menu has no Max Players selector, leaving it alone");
             return;
         }
 
-        // Back to the vanilla "2", "3", "4", then extend if Unlimited mode is on
-        for (int i = options.Count - 1; i >= 0; i--)
+        int currentIndex = menu.maxPlayersOptionsSelectedIndex;
+        string selectedValue = currentIndex >= 0 && currentIndex < current.Count ? current[currentIndex] : null;
+
+        // A new list each time: the carousel keeps a reference to the list and a cached count, so editing the old one
+        // in place left it out of step. Vanilla "2", "3", "4" first, then 5 and up in Unlimited mode.
+        var options = new Il2CppSystem.Collections.Generic.List<string>();
+        for (int i = 0; i < current.Count; i++)
         {
-            if (!int.TryParse(options[i], out int value))
+            if (!int.TryParse(current[i], out int value))
             {
                 Plugin.Logger.LogWarning("Max Players options aren't plain numbers any more, leaving them alone");
                 return;
             }
-            if (value > Plugin.VanillaMaxPlayers)
-                options.RemoveAt(i);
+            if (value <= Plugin.VanillaMaxPlayers)
+                options.Add(current[i]);
         }
         if (UnlimitedMode.Enabled)
         {
@@ -51,8 +59,13 @@ public class CreateServerMenuPatch
                 options.Add(count.ToString());
         }
 
-        // SetGameSetupContextValues indexes the options with this, so keep it in range
-        int selected = Mathf.Clamp(menu.maxPlayersOptionsSelectedIndex, 0, options.Count - 1);
+        // Keep the selected count if it's still offered, otherwise the highest one. SetGameSetupContextValues reads
+        // maxPlayersOptionsRange[maxPlayersOptionsSelectedIndex], so both must agree with the carousel.
+        int selected = selectedValue != null ? options.IndexOf(selectedValue) : -1;
+        if (selected < 0)
+            selected = options.Count - 1;
+
+        menu.maxPlayersOptionsRange = options;
         menu.maxPlayersOptionsSelectedIndex = selected;
         selector.Initialize(options, selected);
     }
