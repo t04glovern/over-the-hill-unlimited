@@ -46,8 +46,62 @@ To uninstall, delete `winhttp.dll` from the game folder.
 
 ### Linux and Steam Deck
 
-The game runs through Proton, so you install the same Windows version of BepInEx, then add a launch option that tells
-Proton to load it. On a Steam Deck, do this in Desktop Mode. These steps haven't been tested on Linux yet.
+The game has a native Linux build. Use the Linux IL2CPP version of BepInEx for that build, or the Windows version if
+you choose to run the Windows game through Proton. On a Steam Deck, make these changes in Desktop Mode.
+
+#### Native Linux client
+
+Startup was verified on native Linux x64 with Unity `6000.0.75f1`, BepInEx build `788` and mod `0.1.0`: the game reached
+the main menu and the BepInEx log confirmed the mod was enabled with `MaxPlayers=8`. Hosting and multiplayer were not
+tested in this native Linux check. Steam Deck has not been tested.
+
+1. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
+   It's usually `~/.local/share/Steam/steamapps/common/over the hill`. The native build contains
+   `over the hill.x86_64` and `GameAssembly.so`.
+2. **Install the Linux loader.** Download
+   [BepInEx-Unity.IL2CPP-linux-x64-6.0.0-be.788+5b766a3.zip](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-linux-x64-6.0.0-be.788%2B5b766a3.zip)
+   and extract it into the game folder, so that `run_bepinex.sh` and `libdoorstop.so` sit next to
+   `over the hill.x86_64`, alongside the `BepInEx/` and `dotnet/` folders. Use the **IL2CPP** build, not Mono or BepInEx 5.
+3. **Make the launcher executable.** Open a terminal in the game folder and run:
+
+   ```sh
+   chmod +x run_bepinex.sh
+   ```
+
+4. **Disable BepInEx's Unity log capture before launching.** Create `BepInEx/config/` if needed, then create
+   `BepInEx/config/BepInEx.cfg` with:
+
+   ```ini
+   [Logging]
+   UnityLogListening = false
+   ```
+
+   If that file already exists, change `UnityLogListening` under `[Logging]` instead of replacing the file.
+   With Unity log capture enabled, the tested native setup crashed during startup, even with the mod's gameplay
+   patches disabled. This setting resolved the crash. BepInEx still writes the mod's logs, and the game's own
+   `Player.log` remains available.
+5. **Set the Steam launch option.** In Steam, right-click Over the Hill, then Properties. Under General, set
+   Launch Options to:
+
+   ```sh
+   ./run_bepinex.sh %command%
+   ```
+
+6. **Run the game once**, wait for the main menu, then quit. The first launch takes longer while BepInEx generates
+   its interop assemblies.
+7. **Install the mod.** Download `OverTheHillUnlimited-<version>.zip` from
+   [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases) and extract it into the game folder.
+   You should end up with `BepInEx/plugins/OverTheHillUnlimited/OverTheHillUnlimited.dll`.
+8. **Launch through Steam.** Check `BepInEx/LogOutput.log` for `Over the Hill Unlimited` and `ExpandPlayerSlots=True`
+   to confirm the mod loaded. The host can then pick a Max Players above 4 under Create Server.
+
+To disable the native loader, clear the launch option above, or remove `./run_bepinex.sh` if you have other launch options.
+
+#### Windows client through Proton
+
+These Proton steps have not been tested. To use this alternative, select a Proton version under Steam's
+Properties, Compatibility, then let Steam install the Windows build. Confirm the game folder contains
+`over the hill.exe` before installing the Windows loader.
 
 1. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
    It's usually `~/.local/share/Steam/steamapps/common/over the hill`.
@@ -220,6 +274,7 @@ Logs:
 - Exceptions thrown by game code are in `%USERPROFILE%\AppData\LocalLow\Funselektor\over the hill\Player.log`.
   Under Proton, that's
   `~/.local/share/Steam/steamapps/compatdata/2929250/pfx/drive_c/users/steamuser/AppData/LocalLow/Funselektor/over the hill/Player.log`.
+- On native Linux, the game's log is `~/.config/unity3d/Funselektor/over the hill/Player.log`.
 
 ### Gotchas
 
