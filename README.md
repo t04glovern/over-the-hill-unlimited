@@ -24,7 +24,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Car repair and tool selection menus with 5+ players | Untested, may break (they size their UI by player count) |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
-| Switching between modded and vanilla in game | "Unlimited mod servers" checkbox in the server browser; untested |
+| Switching between modded and vanilla in game | Verified: the "Unlimited mod servers" checkbox in the server browser switches the list and Max Players |
 
 ## Installation
 
