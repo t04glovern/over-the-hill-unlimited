@@ -30,6 +30,9 @@ internal sealed class ExpandedState
 
     public int ExtraWordCount { get; private set; }
 
+    /// <summary>The behaviour's expanded state size: vanilla words plus appended words.</summary>
+    public int WordCount => _vanillaWordCount + ExtraWordCount;
+
     /// <param name="vanillaWordCount">From the type's [NetworkBehaviourWeaved(n)]; a mismatch at runtime means a game update changed the layout.</param>
     public ExpandedState(string name, int vanillaWordCount)
     {
@@ -76,7 +79,7 @@ internal sealed class ExpandedState
     }
 
     public bool IsExpanded(NetworkBehaviour behaviour) =>
-        behaviour.WordCount == _vanillaWordCount + ExtraWordCount;
+        behaviour.WordCount == WordCount;
 
     public unsafe NetworkArray<T> Array<T>(NetworkBehaviour owner, int offset, int length, NetworkArray<T> vanilla) =>
         new((byte*)(owner.Ptr + _vanillaWordCount + offset), length, vanilla._readerWriter);

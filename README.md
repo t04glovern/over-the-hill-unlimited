@@ -23,11 +23,13 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Pause menu, map, compass and car health UI | Working, but they only show the first 4 players |
 | Car repair and tool selection menus with 5+ players | Untested, may break (they size their UI by player count) |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
-| Players without the mod in a modded session | Unknown |
+| Players without the mod | Kept out from 0.1.2: modded and unmodded players don't see each other's servers; untested |
 
 ## Installation
 
-Everyone in the session needs to do this, not just the host.
+Everyone in the session needs to do this, not just the host, and everyone needs the same mod version. With the mod
+installed you only see servers of other players who have it. To join an unmodded friend's server, see
+[Configuration](#configuration).
 
 ### Windows
 
@@ -83,7 +85,7 @@ To uninstall, clear the launch option, then untick the compatibility option to g
 | Setting | Default | Description |
 |---|---|---|
 | `General.MaxPlayers` | `8` | Highest option in the Max Players menu, 1 to 16. |
-| `General.ExpandPlayerSlots` | `true` | Master switch. Turn it off to play vanilla with people who don't have the mod. |
+| `General.ExpandPlayerSlots` | `true` | Master switch. Turn it off to play vanilla with people who don't have the mod (4 players max), including joining their servers. |
 | `Debug.VerboseLogging` | `false` | Log the session size and player list as players join and leave. Useful for testing. |
 
 ## How it works
@@ -170,8 +172,16 @@ past the end. `PerPlayerTablePatches` pads each table up to 16 entries the first
 
 PEAK uses Photon PUN, where raising the room size on the host is enough. Here, the appended words change the size of
 replicated state, so every peer has to append exactly the same layout. That's why the slot count is a fixed 16 rather than
-following `MaxPlayers`. A player without the mod, or with `ExpandPlayerSlots` off, is not expected to work in a modded
-host's session.
+following `MaxPlayers`.
+
+A player without the mod can't simply ignore the extra words. When a client sets up an object from the server, Fusion's
+`NetworkRunner.InitializeNetworkObjectInstance` asserts that the object's word count matches the client's own, and an
+unmodded client's doesn't. So `ModdedLobbyPatches` keeps the two groups apart. Modded players connect to Photon with the
+game's AppVersion plus a suffix built from the layout, e.g. `-unlimited.16.1250.354.26`. The game builds its Photon
+settings in `OverlandNetworkRunner.BuildCustomAppSetting`, for both the server browser and starting a session, and a
+postfix appends the suffix there. Photon only matches players with the same AppVersion, so unmodded players never see
+or join modded servers, and modded players don't see vanilla ones. Mod versions whose layouts differ are kept apart
+the same way. With `ExpandPlayerSlots` off, the patch isn't applied and the game uses its vanilla AppVersion.
 
 ### Safety
 
@@ -213,6 +223,7 @@ src/OverTheHillUnlimited/
     MapNetworkCapacityPatches.cs      MapNetworkManager
     CampCapacityPatches.cs            CampManager
     PerPlayerTablePatches.cs          game data with one entry per player
+    ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     PlayerListUiPatches.cs            UIs built for 4 players
     SessionDiagnosticsPatches.cs      VerboseLogging output
 tools/
@@ -269,8 +280,8 @@ Logs:
 - [x] First 5-player session: a 5th player joined; lobby spawn points and meteorite setups errored, now padded
 - [ ] Retest 5+ players with all modded, and confirm the appended state syncs between them
 - [ ] Check the car repair and tool selection menus with 5+ players, and player colours (`UIManager.GetPlayerColor`)
-- [ ] Decide on players without the mod: keep them out (a separate Photon AppVersion), or keep the vanilla 4-slot
-      state readable for them
+- [x] Keep players without the mod out (a separate Photon AppVersion), since Fusion rejects the expanded objects on
+      their side
 - [ ] Give the 4-slot UIs more elements so players 5 and up show up
 
 ## Credits

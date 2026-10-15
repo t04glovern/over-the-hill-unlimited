@@ -75,6 +75,9 @@ public class Plugin : BasePlugin
 
         // Keep UIs built for 4 players working against the larger player list
         _harmony.PatchAll(typeof(PlayerListUiPatches));
+
+        // Keep unmodded players out: they can't use the expanded objects
+        _harmony.PatchAll(typeof(ModdedLobbyPatches));
     }
 
     private void BindConfig()
@@ -93,6 +96,7 @@ public class Plugin : BasePlugin
             true,
             "Raise the player cap above 4 by giving the game's networked player state more slots. " +
             "Changes the network layout, so every player in the session needs the mod with this enabled. " +
+            "While it's on you only see and join servers of players running the same mod version. " +
             "Turn it off to play with people who don't have the mod (vanilla behaviour, 4 players max).");
 
         ConfigVerboseLogging = Config.Bind(
