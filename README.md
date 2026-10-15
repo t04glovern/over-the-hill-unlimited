@@ -46,28 +46,32 @@ To uninstall, delete `winhttp.dll` from the game folder.
 
 ### Linux and Steam Deck
 
-The game runs through Proton, so you install the same Windows version of BepInEx, then add a launch option that tells
-Proton to load it. On a Steam Deck, do this in Desktop Mode. These steps haven't been tested on Linux yet.
+Over the Hill has a native Linux version, and that's what Steam installs by default. The mod is only built and tested
+against the Windows version, so on Linux you run the Windows version through Proton. On a Steam Deck, do this in
+Desktop Mode. These steps haven't been fully tested on Linux yet.
 
-1. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
-   It's usually `~/.local/share/Steam/steamapps/common/over the hill`.
-2. **Install BepInEx.** Download the
+1. **Switch to the Windows version.** In Steam, right-click Over the Hill, then Properties, then Compatibility. Tick
+   "Force the use of a specific Steam Play compatibility tool", pick Proton Experimental, and let Steam finish
+   updating the game.
+2. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
+   It's usually `~/.local/share/Steam/steamapps/common/over the hill`, and it should now contain `over the hill.exe`.
+3. **Install BepInEx.** Download the
    [same BepInEx zip](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip)
    and extract it into the game folder, so that `winhttp.dll` sits next to `over the hill.exe`, like the screenshot above.
-3. **Tell Proton to load BepInEx.** In Steam, right-click Over the Hill, then Properties. Under General, set
+4. **Tell Proton to load BepInEx.** In Steam, right-click Over the Hill, then Properties. Under General, set
    Launch Options to:
 
    ```
    WINEDLLOVERRIDES="winhttp=n,b" %command%
    ```
 
-4. **Run the game once**, wait for the main menu, then quit. The first launch takes a few minutes longer than usual.
-5. **Install the mod.** Download `OverTheHillUnlimited-<version>.zip` from
+5. **Run the game once**, wait for the main menu, then quit. The first launch takes a few minutes longer than usual.
+6. **Install the mod.** Download `OverTheHillUnlimited-<version>.zip` from
    [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases) and extract it into the game folder.
    You should end up with `BepInEx/plugins/OverTheHillUnlimited/OverTheHillUnlimited.dll`.
-6. **Play.** The host picks a Max Players above 4 under Create Server.
+7. **Play.** The host picks a Max Players above 4 under Create Server.
 
-To uninstall, clear the launch option.
+To uninstall, clear the launch option, then untick the compatibility option to go back to the native version.
 
 ## Configuration
 
