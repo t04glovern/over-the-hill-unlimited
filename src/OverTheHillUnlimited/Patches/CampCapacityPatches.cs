@@ -9,10 +9,11 @@ namespace OverTheHillUnlimited.Patches;
 /// </summary>
 public class CampCapacityPatches
 {
-    // From [NetworkBehaviourWeaved(10)]
+    // From [NetworkBehaviourWeaved(10)] and SpawnedTents' [NetworkedWeaved(2, 4)]. CampManager doesn't use a
+    // ChangeDetector, so unlike the other expanded behaviours it needs no change signalling.
     internal static readonly ExpandedState State = new(nameof(CampManager), 10);
 
-    static readonly int SpawnedTentsOffset = State.AddArray(1); // NetworkObject is stored as its NetworkId
+    static readonly int SpawnedTentsOffset = State.AddArray(new(2, 4), elementWords: 1); // NetworkObject as its NetworkId
 
     [HarmonyPatch(typeof(NetworkBehaviourUtils), nameof(NetworkBehaviourUtils.GetWordCount))]
     [HarmonyPostfix]

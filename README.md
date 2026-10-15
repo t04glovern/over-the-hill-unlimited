@@ -14,7 +14,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Host can pick up to 16 in Create Server, Max Players | Verified |
 | Photon Fusion room uses that size (`1/8 players`) | Verified |
 | Networked player list (order, colours, names) holds 16 players | Verified solo |
-| Map pins, portable winch anchors and camp tents hold 16 players | Pins work but redraw late ([known issue](#known-issues)); anchors and tents untested |
+| Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
+| Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
 | Pause menu, map, compass and car health UI | Working, but they only show the first 4 players |
 | Two modded players in one session | Untested |
 | A 5th player joining and playing | Untested |
@@ -95,9 +96,16 @@ OverlandSessionPlayers state block (replicated by Fusion)
   getters therefore sees 16 slots.
 - Fusion replicates the whole block, so the appended slots should sync like any other networked state. This is the
   part the 2-player test still needs to confirm.
+- Fusion's `ChangeDetector` only compares each property's *vanilla* word range, so on its own it never sees changes to
+  the appended copies. `MapNetworkManager` and `OverlandSessionPlayers` refresh their UI from it in `Render()`, which made
+  map pins appear only after reopening the map. To fix that, a prefix on their `Render()` runs on the host first. It writes
+  a hash of each appended collection into the last word of the vanilla range it replaces, which is otherwise unused.
+  When the real data changes the hash changes, so the property reads as changed. The hash also replicates to clients, so
+  their change detectors fire too. `CampManager` doesn't use a `ChangeDetector`.
 
-[`Networking/ExpandedState.cs`](src/OverTheHillUnlimited/Networking/ExpandedState.cs) holds the layout maths and builds
-the collections. Each behaviour has a small patch class that declares its collections.
+[`Networking/ExpandedState.cs`](src/OverTheHillUnlimited/Networking/ExpandedState.cs) holds the layout maths, builds the
+collections and signals changes. Each behaviour has a small patch class that declares its collections and where their
+vanilla versions live.
 
 ### 3. UI built for 4 players
 
@@ -176,18 +184,13 @@ Logs:
   unrelated methods. Patch `NetworkBehaviourUtils.GetWordCount` instead.
 - The interop wrapper misreports `StartGameArgs.PlayerCount` (a `Nullable<int>`) as 0, so `SessionSizePatches` reads
   the raw struct.
-
-## Known issues
-
-- **Map pins only appear after reopening the map.** `MapNetworkManager` and `OverlandSessionPlayers` refresh their UI from
-  Fusion's `ChangeDetector` in `Render()`. `ChangeDetector` spots a change by comparing each property's *vanilla* words,
-  and the mod writes to the appended words, so those refreshes never fire. Player list updates (names, colours, busy state)
-  are probably affected too. Planned fix: on the host, write a checksum of each appended collection into its unused
-  vanilla words, so the change detector sees a change whenever the real data does.
+- Anything that moves a `[Networked]` property's data out of its woven range also hides it from `ChangeDetector`, and from
+  any `[OnChangedRender]` callback, which works the same way. See the change-signal note under
+  [How it works](#2-fixed-size-networked-state).
 
 ## Roadmap
 
-- [ ] Make Fusion's change detection notice changes in the appended state (see [Known issues](#known-issues))
+- [x] Make Fusion's change detection notice changes in the appended state (map pins redrew late)
 - [ ] Test with 2 modded players to confirm the appended state syncs
 - [ ] Test with 5 or more players and fix what breaks. Likely candidates are the game's own join check
       (`OverlandNetworkRunner.OnConnectRequest`), lobby spawn points (`Lobby.spawnPoints`) and player colours

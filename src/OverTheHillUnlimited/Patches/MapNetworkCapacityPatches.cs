@@ -10,18 +10,26 @@ namespace OverTheHillUnlimited.Patches;
 /// </summary>
 public class MapNetworkCapacityPatches
 {
-    // From [NetworkBehaviourWeaved(107)]
+    // From [NetworkBehaviourWeaved(107)]; vanilla ranges from each property's [NetworkedWeaved(offset, words)]
     internal static readonly ExpandedState State = new(nameof(MapNetworkManager), 107);
 
-    static readonly int PinpointPositionOffset = State.AddDictionary(1, 3); // Vector3 is 3 words
-    static readonly int PinpointObjectOffset = State.AddDictionary(1, 1); // NetworkObject is stored as its NetworkId
-    static readonly int WinchAnchorOffset = State.AddDictionary(1, 1);
+    static readonly int PinpointPositionOffset = State.AddDictionary(new(0, 45), keyWords: 1, valueWords: 3); // Vector3
+    static readonly int PinpointObjectOffset = State.AddDictionary(new(45, 31), keyWords: 1, valueWords: 1); // NetworkObject as its NetworkId
+    static readonly int WinchAnchorOffset = State.AddDictionary(new(76, 31), keyWords: 1, valueWords: 1);
 
     [HarmonyPatch(typeof(NetworkBehaviourUtils), nameof(NetworkBehaviourUtils.GetWordCount))]
     [HarmonyPostfix]
     static void GetWordCountPostfix(NetworkBehaviour behaviour, ref int __result)
     {
         State.ExpandIf<MapNetworkManager>(behaviour, ref __result);
+    }
+
+    // Runs before the game's Render checks its ChangeDetector
+    [HarmonyPatch(typeof(MapNetworkManager), nameof(MapNetworkManager.Render))]
+    [HarmonyPrefix]
+    static void RenderPrefix(MapNetworkManager __instance)
+    {
+        State.SignalChanges(__instance);
     }
 
     [HarmonyPatch(typeof(MapNetworkManager), nameof(MapNetworkManager.PlayerRefToPinpointPosition), MethodType.Getter)]

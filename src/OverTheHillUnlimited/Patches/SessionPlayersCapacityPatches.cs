@@ -11,21 +11,29 @@ namespace OverTheHillUnlimited.Patches;
 /// </summary>
 public class SessionPlayersCapacityPatches
 {
-    // From [NetworkBehaviourWeaved(390)]
+    // From [NetworkBehaviourWeaved(390)]; vanilla ranges from each property's [NetworkedWeaved(offset, words)]
     internal static readonly ExpandedState State = new(nameof(OverlandSessionPlayers), 390);
 
-    static readonly int OrderedPlayerRefsOffset = State.AddArray(1);
-    static readonly int PlayerColorsOffset = State.AddArray(1);
-    static readonly int BusyReasonOffset = State.AddDictionary(1, 1);
-    static readonly int DevTeamOffset = State.AddDictionary(1, 1);
-    static readonly int SupporterEditionOffset = State.AddDictionary(1, 1);
-    static readonly int NameOffset = State.AddDictionary(1, 33); // NetworkString<_32> is 33 words
+    static readonly int OrderedPlayerRefsOffset = State.AddArray(new(351, 4), elementWords: 1);
+    static readonly int PlayerColorsOffset = State.AddArray(new(355, 4), elementWords: 1);
+    static readonly int BusyReasonOffset = State.AddDictionary(new(359, 31), keyWords: 1, valueWords: 1);
+    static readonly int DevTeamOffset = State.AddDictionary(new(320, 31), keyWords: 1, valueWords: 1);
+    static readonly int SupporterEditionOffset = State.AddDictionary(new(289, 31), keyWords: 1, valueWords: 1);
+    static readonly int NameOffset = State.AddDictionary(new(34, 255), keyWords: 1, valueWords: 33); // NetworkString<_32>
 
     [HarmonyPatch(typeof(NetworkBehaviourUtils), nameof(NetworkBehaviourUtils.GetWordCount))]
     [HarmonyPostfix]
     static void GetWordCountPostfix(NetworkBehaviour behaviour, ref int __result)
     {
         State.ExpandIf<OverlandSessionPlayers>(behaviour, ref __result);
+    }
+
+    // Runs before the game's Render checks its ChangeDetector
+    [HarmonyPatch(typeof(OverlandSessionPlayers), nameof(OverlandSessionPlayers.Render))]
+    [HarmonyPrefix]
+    static void RenderPrefix(OverlandSessionPlayers __instance)
+    {
+        State.SignalChanges(__instance);
     }
 
     [HarmonyPatch(typeof(OverlandSessionPlayers), nameof(OverlandSessionPlayers.OrderedPlayerRefs), MethodType.Getter)]
