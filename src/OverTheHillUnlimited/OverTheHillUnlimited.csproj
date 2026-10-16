@@ -7,7 +7,7 @@
 
         <AssemblyName>OverTheHillUnlimited</AssemblyName>
         <RootNamespace>OverTheHillUnlimited</RootNamespace>
-        <Version>0.4.1</Version>
+        <Version>0.4.2</Version>
 
         <LangVersion>latest</LangVersion>
         <Nullable>disable</Nullable>
