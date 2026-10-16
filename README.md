@@ -4,8 +4,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 [Over the Hill](https://store.steampowered.com/app/2929250/), inspired by [PEAK Unlimited](https://github.com/glarmer/PEAK-Unlimited).
 
 > **Status: early and experimental.** A modded host can create a server for more than 4 players, and the game's
-> networked player state has room for 16. That's been verified hosting solo. Sessions with real players haven't
-> been tested yet.
+> networked player state has room for 16. It's been played with 5 real players; bigger sessions have only been tested
+> with bots, by the built-in self-test with 16.
 
 **Download:** [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases). See [Installation](#installation).
 
@@ -19,7 +19,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Networked player list (order, colours, names) holds 16 players | Verified solo |
 | Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
-| Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
+| Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, and work in a later 5-player session |
 | Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players. Pause menu rows 5+ open their player options (fixed in 0.3.0) |
 | Lobby with 5+ cars | Extra rows behind the first, and the camera rises to show every car; verified by the self-test with 16 |
 | Spawning in the map with 5+ players | Extra spawn points around each cabin, so cars don't land on top of each other; verified by the self-test with 16 |
@@ -480,7 +480,7 @@ Logs:
 - [x] Search the game code for other 4-player assumptions, and pad the UIs that index per-player elements
 - [x] Pad the pause menu and map too, so players 5 and up show there
 - [x] A self-test that exercises every per-player path with bot players, without needing other people
-- [ ] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
+- [x] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
 - [x] Colours of their own for players 5 and up (Windows)
 
 ## Credits
