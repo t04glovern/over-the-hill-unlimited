@@ -21,7 +21,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
 | Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
 | Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players |
-| Colours for players 5+ | The game's default colour (its colour lookup only knows 4) |
+| Colours for players 5+ | Their own colours on Windows (self-test); the game's default colour on native Linux |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
 | Switching between modded and vanilla in game | Verified: the "Unlimited mod servers" checkbox in the server browser switches the list and Max Players |
@@ -175,9 +175,11 @@ layout group. So clones need no layout, and players 5 and up get their own.
 The map also keeps `pinpointIndicatorsRectTransforms`, parallel to its pins, and fills it with a hard-coded loop over
 the first 4 pins. A prefix on `MapView.UpdatePlayerPinpoint` adds the rects for the padded pins.
 
-The compass builds its icons as it needs them, so it handles any number of players. Player colours and pin flares come
-from a switch on the player's slot with a default case, so players 5 and up get the default colour rather than an
-error. Player notifications come from a shared pool, not one per slot.
+The compass builds its icons as it needs them, so it handles any number of players. Player notifications come from a
+shared pool, not one per slot. Player colours (`UIManager.GetPlayerColor`) and pin flares come from a switch on the
+player's colour slot, with a default for anything past the 4th. `PlayerColourPatches` gives colour slots 5 to 16 their
+own colours, on Windows only. `GetPlayerColor` returns a 16-byte `Color`, which native Linux returns in registers, and
+that's the kind of struct Il2CppInterop's trampolines get wrong there. Flares keep the default.
 
 ### 4. Game data sized for 4 players
 
@@ -290,6 +292,7 @@ src/OverTheHillUnlimited/
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16
+    PlayerColourPatches.cs            colours for players 5 and up (Windows)
     SessionDiagnosticsPatches.cs      VerboseLogging output
   Testing/
     SelfTest.cs                       the -otu-selftest script and its checks
@@ -363,7 +366,7 @@ Logs:
 - [x] Pad the pause menu and map too, so players 5 and up show there
 - [x] A self-test that exercises every per-player path with bot players, without needing other people
 - [ ] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
-- [ ] Colours of their own for players 5 and up
+- [x] Colours of their own for players 5 and up (Windows)
 
 ## Credits
 

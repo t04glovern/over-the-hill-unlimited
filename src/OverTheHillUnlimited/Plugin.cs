@@ -83,6 +83,10 @@ public class Plugin : BasePlugin
         // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));
 
+        // Colours of their own for players 5 and up (Windows only, see PlayerColourPatches)
+        if (PlayerColourPatches.Supported)
+            _harmony.PatchAll(typeof(PlayerColourPatches));
+
         // Keep unmodded players out: they can't use the expanded objects
         _harmony.PatchAll(typeof(ModdedLobbyPatches));
     }

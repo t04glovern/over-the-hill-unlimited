@@ -130,6 +130,14 @@ internal sealed class SelfTest
             Check($"{name} has a car", () => runner.TryGetPlayerObject(bot, out var car) && car != null);
             Check($"{name} has a colour slot", () => SlotOf(Players.PlayerColors, bot) >= 0);
         }
+        if (PlayerColourPatches.Supported)
+        {
+            Check("every player has a distinct colour", () =>
+            {
+                var colours = AllPlayers(runner).Select(p => UIManager.GetPlayerColor(p)).ToList();
+                return colours.Distinct().Count() == colours.Count;
+            }, () => string.Join(", ", AllPlayers(runner).Select(p => $"{Players.GetPlayerName(p)}={UIManager.GetPlayerColor(p)}")));
+        }
         var lobby = Object.FindObjectOfType<Lobby>();
         Check("every player has their own lobby spawn point", () =>
         {
