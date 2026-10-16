@@ -1,6 +1,9 @@
+using System;
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using OverTheHillUnlimited.Networking;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace OverTheHillUnlimited.Patches;
 
@@ -28,6 +31,26 @@ public class PerPlayerTablePatches
         while (setups.Count < ExpandedState.Capacity)
             setups.Add(setups[vanillaCount - 1]);
         Plugin.Logger.LogInfo($"Meteorite setups padded from {vanillaCount} to {setups.Count} player counts");
+    }
+
+    // Meteorite.winchedPlayersPullDirections is created as a Vector2[4], but FixedUpdateNetwork writes one entry per car
+    // winched to the meteorite (winchedPlayers, a list that grows), so a 5th winch throws on the host every tick and
+    // the meteorite can never be extracted. Grow it before each winch is added.
+    [HarmonyPatch(typeof(Meteorite), nameof(Meteorite.OnWinchAttached))]
+    [HarmonyPrefix]
+    static void PadMeteoritePullDirections(Meteorite __instance)
+    {
+        if (!UnlimitedMode.Enabled)
+            return;
+        var directions = __instance.winchedPlayersPullDirections;
+        int needed = Math.Max(ExpandedState.Capacity, (__instance.winchedPlayers?.Count ?? 0) + 1);
+        if (directions != null && directions.Length >= needed)
+            return;
+
+        var padded = new Il2CppStructArray<Vector2>(needed);
+        for (int i = 0; directions != null && i < directions.Length; i++)
+            padded[i] = directions[i];
+        __instance.winchedPlayersPullDirections = padded;
     }
 
     // Lobby.spawnPoints is indexed by the player's slot in OrderedPlayerRefs

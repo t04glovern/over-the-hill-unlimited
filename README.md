@@ -23,6 +23,10 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players. Pause menu rows 5+ open their player options (fixed in 0.3.0) |
 | Lobby with 5+ cars | Extra rows behind the first, and the camera rises to show every car; verified by the self-test with 16 |
 | Spawning in the map with 5+ players | Extra spawn points around each cabin, so cars don't land on top of each other; verified by the self-test with 16 |
+| Arriving through a portal with 5+ players | Players past the 4th used to arrive with no car; now everyone gets a spot (self-test with 16) |
+| Winching with 5+ cars (one car, a meteorite, a recovery vehicle) | Room for 16 winches on each (self-test with 6 winches) |
+| Tents at camp with 8+ players | The tent circle widens so tents don't overlap (self-test with 16) |
+| Discord voice chat with 5+ players | An emitter for every other player (self-test of the slots; audio needs a real call) |
 | Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
 | Colours for players 5+ | Their own colours on Windows (self-test); the game's default colour on native Linux |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
@@ -102,14 +106,14 @@ and fixing the second one exposes a third.
 ### 1. Session size
 
 ```
-Create Server menu ──► GameSetupContext.MaxPlayers ──X   game always passes 4   ──► StartGameArgs.PlayerCount ──► Fusion room
- options "2" "3" "4"                                                                                                    max 4
+Create Server menu ──► GameSetupContext.MaxPlayers ──X  game caps it at 4  ──► StartGameArgs.PlayerCount ──► Fusion room
+ options "2" "3" "4"                                                                                                 max 4
 ```
 
 - `CreateServerMenuPatch` appends `5..MaxPlayers` to the menu's options. The game parses the chosen option into
   `GameSetupContext.MaxPlayers` itself.
-- The game ignores that value when it starts Fusion. It always passes `StartGameArgs.PlayerCount = 4` and enforces
-  smaller choices on its own. `SessionSizePatches` remembers the menu value in `OverlandNetworkRunner.StartGame`.
+- When the game starts Fusion, it passes `StartGameArgs.PlayerCount = Math.Min(MaxPlayers, 4)`, so any choice above 4
+  becomes 4. `SessionSizePatches` remembers the menu value in `OverlandNetworkRunner.StartGame`.
   It then writes that value into the copy of `StartGameArgs` that Fusion's `StartGameModeCloud` async method keeps in
   its state machine. That happens on the state machine's first `MoveNext()`, before the Photon room is created from it.
   (Patching `NetworkRunner.StartGame(StartGameArgs)` directly works on Windows but crashes on native Linux; see
@@ -128,6 +132,7 @@ bakes their offsets into the property getters. The game sizes its per-player col
 | `OverlandSessionPlayers` | player order, colours, names, busy state, dev team and supporter edition flags | 390 | 1250 |
 | `MapNetworkManager` | map pinpoint positions and objects, portable winch anchors | 107 | 354 |
 | `CampManager` | spawned tents | 10 | 26 |
+| `VehicleWinchSystem` (every car) | the players whose winches are attached to the car | 25 | 41 |
 
 The mod leaves the vanilla words alone. It appends a 16-slot copy of each collection after them:
 
@@ -140,7 +145,7 @@ OverlandSessionPlayers state block (replicated by Fusion)
 ```
 
 - Fusion asks `NetworkBehaviourUtils.GetWordCount(behaviour)` how big each block should be. A postfix adds the extra
-  words for these three behaviours.
+  words for these behaviours.
 - A postfix on each collection's property getter returns a collection built over the appended words instead. It uses
   the same constructor as the woven getter, with a different pointer and capacity. Game code that goes through the
   getters therefore sees 16 slots.
@@ -151,7 +156,11 @@ OverlandSessionPlayers state block (replicated by Fusion)
   map pins appear only after reopening the map. To fix that, a prefix on their `Render()` runs on the host first. It writes
   a hash of each appended collection into the last word of the vanilla range it replaces, which is otherwise unused.
   When the real data changes the hash changes, so the property reads as changed. The hash also replicates to clients, so
-  their change detectors fire too. `CampManager` doesn't use a `ChangeDetector`.
+  their change detectors fire too. `CampManager` doesn't use a `ChangeDetector`, and `VehicleWinchSystem`'s only
+  watches other properties.
+- A car's `AttachedWinchesOwners` holds its own winch plus every other player winched to it. With 4 slots, a 5th was
+  silently dropped, and `DetachAllWinches` (when the car teleports, respawns, leaves or opens the merchant) didn't
+  release that player's rope.
 
 [`Networking/ExpandedState.cs`](src/OverTheHillUnlimited/Networking/ExpandedState.cs) holds the layout maths, builds the
 collections and signals changes. Each behaviour has a small patch class that declares its collections and where their
@@ -192,8 +201,8 @@ that's the kind of struct Il2CppInterop's trampolines get wrong there. Flares ke
 
 ### 4. Game data sized for 4 players
 
-Some game data has one entry per player, and the code indexes it by player count or slot. With 5 players, it reads
-past the end. `PerPlayerTablePatches` pads each table up to 16 entries the first time the game reads it:
+Some game data and world state has one entry or one place per player, sized for 4. With 5 players the code reads past
+the end, puts cars on top of each other, or drops players. Each gets room for 16:
 
 - `MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount`, indexed by `ActivePlayers.Count() - 1`, gets copies of
   its 4-player entry.
@@ -206,6 +215,21 @@ past the end. `PerPlayerTablePatches` pads each table up to 16 entries the first
   there, which is every player from the 5th on when a session starts. `CabinSpawnPointPatches` adds spawn points
   around the game's own the first time each place is used. These places sit among trees and rocks, so each extra spot
   must be on terrain, fairly level, a car's length from the others, and clear of anything solid.
+- Portals have 4 spawn points too, and arriving through one is worse: `Portal.AssignPlayersToSpawnPoints` gives each
+  player the spawn point at their position in `ActivePlayers` and skips anyone past the end, who then has no car and
+  can't respawn. `CabinSpawnPointPatches` pads portals before that, and fills any slots the search couldn't with rows
+  behind the portal's own points.
+- `Meteorite.winchedPlayersPullDirections` is made as a `Vector2[4]`, but extraction writes a pull direction for every
+  car winched to the meteorite, so a 5th winch threw on the host every tick and the meteorite never came out. It's
+  grown before each winch is added.
+- Tents go on one circle around the campfire, one per car, at a fixed distance that fits 7. `CampTentPatches` widens
+  the circle for bigger parties in `StateCampTool.ShowTentDecalProjectors`, which the tents' placement reads too.
+- An item recovery mission's networked status has 4 slots for the cars winched to the vehicle being recovered: a 5th
+  winch threw on the host, letting go threw again, and completing the mission left it attached.
+  `ItemRecoveryWinchPatches` keeps cars past the 4th in a host-side list, moves one into a slot whenever a recorded car
+  lets go, and detaches them all on completion.
+- In-game voice chat (through Discord) has emitters for 3 other players. The 4th and later were silent and logged an
+  exception for every audio frame. `VoiceChatCapacityPatches` adds emitters before a call starts.
 
 ### Why everyone needs the mod
 
@@ -216,7 +240,7 @@ following `MaxPlayers`.
 A player without the mod can't simply ignore the extra words. When a client sets up an object from the server, Fusion's
 `NetworkRunner.InitializeNetworkObjectInstance` asserts that the object's word count matches the client's own, and an
 unmodded client's doesn't. So `ModdedLobbyPatches` keeps the two groups apart. Modded players connect to Photon with the
-game's AppVersion plus a suffix built from a protocol number and the layout, e.g. `-unlimited.p1.16.1250.354.26`. The
+game's AppVersion plus a suffix built from a protocol number and the layout, e.g. `-unlimited.p1.16.1250.354.26.41`. The
 game builds its Photon settings in `OverlandNetworkRunner.BuildCustomAppSetting`, for both the server browser and
 starting a session, and a postfix appends the suffix there. Photon only matches players with the same AppVersion, so
 unmodded players never see or join modded servers, and modded players don't see vanilla ones. Mod versions whose
@@ -290,14 +314,18 @@ Launch the game with `-otu-selftest` and it tests itself:
 5. It exercises everything else that indexes per-player data: the player registry, name labels, busy states, map
    pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD, and the map,
    pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks that their
-   player options open.
-6. It removes the bots and quits to the main menu.
-7. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
+   player options open, that the rows grey out like the game's own, and that a gamepad can move down through them.
+6. It has 6 cars winch one car, a meteorite and the area's recovery vehicle, and checks that every winch is tracked,
+   extraction starts, and every rope is released. It lays out a tent per player around a campfire and checks none
+   overlap, fills voice chat with 15 other participants, and finally sends everyone through a portal and checks every
+   player arrives with a car.
+7. It removes the bots and quits to the main menu.
+8. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
    Then it clicks the checkbox through its real click handler, off and back on, and checks that the lobby reconnects
    each time.
-8. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
+9. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
    default player count back to 4).
-9. It restores your saved Unlimited mode setting and quits.
+10. It restores your saved Unlimited mode setting and quits.
 
 It also logs how long the expanded getters take compared with an unpatched one.
 
@@ -331,9 +359,13 @@ src/OverTheHillUnlimited/
     SessionPlayersCapacityPatches.cs  OverlandSessionPlayers
     MapNetworkCapacityPatches.cs      MapNetworkManager
     CampCapacityPatches.cs            CampManager
+    WinchCapacityPatches.cs           VehicleWinchSystem (winches attached to each car)
     PerPlayerTablePatches.cs          game data with one entry per player
-    CabinSpawnPointPatches.cs         room for every car where players spawn in the map
+    CabinSpawnPointPatches.cs         room for every car where players spawn or arrive in the map
     LobbyCameraPatches.cs             lobby camera that frames every car
+    CampTentPatches.cs                room around the campfire for every tent
+    ItemRecoveryWinchPatches.cs       more than 4 winches on a recovery vehicle
+    VoiceChatCapacityPatches.cs       voice chat emitters for every player
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16
@@ -341,7 +373,9 @@ src/OverTheHillUnlimited/
     SessionDiagnosticsPatches.cs      VerboseLogging output
   Testing/
     SelfTest.cs                       the -otu-selftest script and its checks
+    SelfTest.World.cs                 its checks for winches, tents, voice chat and portals
     SelfTestRunner.cs                 drives the script frame by frame
+    FourSlotProbe.cs                  -otu-selftest-probe: lists every list or array still holding 4
     BotPlayers.cs                     fake players for the self-test
     LogWatcher.cs                     collects game and BepInEx errors per test section
 tools/

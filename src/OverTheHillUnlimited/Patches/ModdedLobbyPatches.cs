@@ -21,7 +21,8 @@ public class ModdedLobbyPatches
         $"-unlimited.p{Protocol}.{ExpandedState.Capacity}" +
         $".{SessionPlayersCapacityPatches.State.WordCount}" +
         $".{MapNetworkCapacityPatches.State.WordCount}" +
-        $".{CampCapacityPatches.State.WordCount}";
+        $".{CampCapacityPatches.State.WordCount}" +
+        $".{WinchCapacityPatches.State.WordCount}";
 
     // The game builds fresh app settings here both for the server browser (JoinLobby) and for starting or joining
     // a session (StartGameAsync)

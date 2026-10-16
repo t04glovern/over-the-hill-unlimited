@@ -1,7 +1,9 @@
+using System.Collections.Generic;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using OverTheHillUnlimited.Networking;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace OverTheHillUnlimited.Patches;
 
@@ -68,8 +70,11 @@ public class PerPlayerUiPatches
     [HarmonyPrefix]
     static void PadPauseMenuRows(StatePauseMenu __instance)
     {
-        var rows = __instance.contextUIPauseMenu?.PlayerInfos;
+        var menu = __instance.contextUIPauseMenu;
+        var rows = menu?.PlayerInfos;
         int vanillaCount = rows?.Count ?? 0;
+        if (vanillaCount > 0 && vanillaCount < ExpandedState.Capacity)
+            _pauseRowsExit = rows[vanillaCount - 1].ButtonSelector.navigation.selectOnDown;
         if (!Pad(rows))
             return;
         for (int i = vanillaCount; i < rows.Count; i++)
@@ -77,8 +82,45 @@ public class PerPlayerUiPatches
             int slot = i;
             rows[i].ButtonSelector.add_OnPointerClickOrSubmit(
                 (System.Action<UIButtonSelector>)(button => __instance.OpenPlayerMenu(button, slot)));
+
+            // ContextUIPauseMenu.Awake gives every selector in the menu the menu's StyleParentDisabled, once. Clones
+            // keep UISelector's default instead, so they'd grey out whenever the menu loses focus (player options,
+            // settings) while the game's own rows don't.
+            foreach (var selector in rows[i].GetComponentsInChildren<UISelector>(true))
+                selector.StyleParentDisabled = menu.styleParentDisabled;
         }
     }
+
+    // The rows have explicit gamepad links, which clones copy from the last vanilla row, so "down" never got past the
+    // 4th. Once SetupMenu has shown the rows in use, chain them, ending where the last vanilla row's "down" first went.
+    [HarmonyPatch(typeof(StatePauseMenu), nameof(StatePauseMenu.SetupMenu))]
+    [HarmonyPostfix]
+    static void LinkPauseMenuRows(StatePauseMenu __instance)
+    {
+        var rows = __instance.contextUIPauseMenu?.PlayerInfos;
+        if (!UnlimitedMode.Enabled || rows == null || rows.Count <= Plugin.VanillaMaxPlayers)
+            return;
+
+        var shown = new List<Selectable>();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (rows[i].gameObject.activeSelf)
+                shown.Add(rows[i].ButtonSelector);
+        }
+        for (int i = 0; i < shown.Count; i++)
+        {
+            var navigation = shown[i].navigation;
+            if (navigation.mode != Navigation.Mode.Explicit)
+                return;
+            if (i > 0)
+                navigation.selectOnUp = shown[i - 1];
+            navigation.selectOnDown = i + 1 < shown.Count ? shown[i + 1] : _pauseRowsExit;
+            shown[i].navigation = navigation;
+        }
+    }
+
+    // Where "down" from the last vanilla pause row went before any linking (the menu is spawned afresh on each open)
+    static Selectable _pauseRowsExit;
 
     // Player markers and pins on the map, indexed by slot
     [HarmonyPatch(typeof(MapView), nameof(MapView.OnEnable))]
@@ -121,7 +163,20 @@ public class PerPlayerUiPatches
     [HarmonyPrefix]
     static void PadCarHealthMarkers(CarHealthUI __instance)
     {
-        Pad(__instance.carHealthStatusButtons);
+        var buttons = __instance.carHealthStatusButtons;
+        int vanillaCount = buttons?.Count ?? 0;
+        if (!Pad(buttons))
+            return;
+
+        // CarHealthUI.Start hides each marker's WorldTrackingRectTransform, and Show only ever toggles that object,
+        // never the marker's root. So give clones the template's root state and Start's hidden tracker, wherever in
+        // the marker the tracker sits.
+        var template = buttons[vanillaCount - 1];
+        for (int i = vanillaCount; i < buttons.Count; i++)
+        {
+            buttons[i].gameObject.SetActive(template.gameObject.activeSelf);
+            buttons[i].WorldTrackingRectTransform?.gameObject.SetActive(false);
+        }
     }
 
     // HUD markers for players' portable winch anchors

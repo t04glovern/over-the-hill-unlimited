@@ -47,7 +47,7 @@ internal sealed class Until
 /// given. -otu-selftest-area &lt;name&gt; picks the area (default: the first one), -otu-selftest-players &lt;n&gt; the
 /// session size (default: MaxPlayers), and -otu-selftest-screenshots saves screenshots along the way.
 /// </summary>
-internal sealed class SelfTest
+internal sealed partial class SelfTest
 {
     public const string Flag = "-otu-selftest";
     const string StayFlag = "-otu-selftest-stay";
@@ -63,6 +63,7 @@ internal sealed class SelfTest
     int _failed;
     int _screenshots;
     bool? _savedMode;
+    readonly FourSlotProbe _probe = HasArgument(FourSlotProbe.Flag) ? new FourSlotProbe() : null;
 
     public SelfTest(ManualLogSource log)
     {
@@ -170,6 +171,7 @@ internal sealed class SelfTest
             () => $"{CountActive(lobbyMenu.lobbyMenuContextUI.LobbyPlayersStatus)} shown");
         Check("every car can be seen from the lobby camera", () => HiddenLobbyCars(lobby, runner).Count == 0,
             () => $"hidden or out of view: {string.Join(", ", HiddenLobbyCars(lobby, runner))}");
+        _probe?.Scan("lobby");
         yield return Screenshot("lobby");
         Do("bots show as busy", () => bots.ForEach(bot => Players.RPC_SetBusyState(bot, 1, true)));
         yield return new Wait(1);
@@ -199,7 +201,7 @@ internal sealed class SelfTest
             () => string.Join(", ", AllPlayers(runner).Where(p => !Players.SpawnedInMap(p)).Select(p => Players.GetPlayerName(p))));
         Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < 60),
             () => string.Join(", ", AllPlayers(runner).Select(p => $"{Players.GetPlayerName(p)} {Vector3.Distance(CarPosition(runner, p), start.transform.position):F0} m")));
-        Check("no two cars on top of each other", () => ClosestCars(runner) >= 3, () => $"two cars {ClosestCars(runner):F1} m apart");
+        Check("no two cars on top of each other", () => ClosestCars(runner) >= MinCarSpacing, () => $"two cars {ClosestCars(runner):F1} m apart");
         EndSection();
 
         Section("Free roam");
@@ -228,6 +230,15 @@ internal sealed class SelfTest
         Do("car health HUD updates", () => carHealth?.SetupPlayerCarHealthStatus());
         Check("car health HUD has a marker for every player", () => carHealth == null || carHealth.carHealthStatusButtons.Count >= maxPlayers,
             () => $"{carHealth.carHealthStatusButtons.Count} markers");
+        if (carHealth != null)
+        {
+            // CarHealthUI.Show toggles only the marker's tracker, so a clone must have its root set up like the game's
+            var marker = carHealth.carHealthStatusButtons[carHealth.carHealthStatusButtons.Count - 1];
+            Do("a padded car health marker is shown", () => carHealth.Show(marker, true));
+            Check("it appears", () => marker.WorldTrackingRectTransform.gameObject.activeInHierarchy);
+            Do("and is hidden again", () => carHealth.Show(marker, false));
+        }
+        _probe?.Scan("free roam");
         yield return Screenshot("free-roam");
         EndSection();
 
@@ -240,6 +251,7 @@ internal sealed class SelfTest
                  {
                      var repair = state.TryCast<StateCarRepair>();
                      var buttons = repair.contextUICarRepair.CarRepairButtons;
+                     _probe?.Scan("car repair");
                      int inRange = bots.Count(bot => BotPlayers.TryGetCar(bot, out var car) &&
                          Vector3.Distance(car.transform.position, origin) <= repair.maxRepairRange);
                      Check($"a repair button for each of the {inRange} bots in range", () => CountActive(buttons) >= inRange,
@@ -249,9 +261,24 @@ internal sealed class SelfTest
         foreach (var step in OpenMenu("Tool selection menu", () => new StateSelectTool(carDamage), state =>
                  {
                      var tools = state.TryCast<StateSelectTool>();
+                     _probe?.Scan("tool selection");
                      Check("a car health button for every player", () => tools.contextUISelectTool.CarHealthButtons.Count >= maxPlayers);
                      Check("a tools panel for every player", () => tools.contextUISelectTool.AvailableToolsPanels.Count >= maxPlayers);
                  }))
+            yield return step;
+
+        foreach (var step in TestCarWinches(runner, bots))
+            yield return step;
+        foreach (var step in TestMeteoriteWinches(runner))
+            yield return step;
+        foreach (var step in TestItemRecoveryWinches(runner, bots))
+            yield return step;
+        foreach (var step in TestCampTents(maxPlayers, origin))
+            yield return step;
+        foreach (var step in TestVoiceChatSlots())
+            yield return step;
+        // Last in the world: it replaces every car, the host's included
+        foreach (var step in TestPortalArrival(runner))
             yield return step;
 
         Section("Bots leave");
@@ -286,6 +313,7 @@ internal sealed class SelfTest
             Check("pin markers and their rects stay in step", () =>
                     map.pinpointIndicators.Count >= maxPlayers && map.pinpointIndicatorsRectTransforms.Count == map.pinpointIndicators.Count,
                 () => $"{map.pinpointIndicators.Count} pins, {map.pinpointIndicatorsRectTransforms.Count} rects");
+            _probe?.Scan("map");
             yield return Screenshot("map");
         }
 
@@ -294,9 +322,14 @@ internal sealed class SelfTest
         {
             var rows = state.TryCast<StatePauseMenu>().contextUIPauseMenu.PlayerInfos;
             Check("a row for every player", () => CountActive(rows) == maxPlayers, () => $"{CountActive(rows)} rows shown");
+            _probe?.Scan("pause menu");
             yield return Screenshot("pause-menu");
             Check("every row has one click handler", () => Enumerable.Range(0, rows.Count).All(i => HandlerCount(rows[i].ButtonSelector) == 1),
                 () => string.Join(", ", Enumerable.Range(0, rows.Count).Select(i => HandlerCount(rows[i].ButtonSelector))));
+            Check("every row greys out like the game's own when the menu loses focus",
+                () => Enumerable.Range(0, rows.Count).All(i => rows[i].ButtonSelector.StyleParentDisabled == rows[0].ButtonSelector.StyleParentDisabled));
+            Check("a gamepad can move down through every row", () => BrokenRowLinks(rows).Count == 0,
+                () => $"down from row {string.Join(", ", BrokenRowLinks(rows))} doesn't reach the next row");
 
             var ordered = Players.OrderedPlayerRefs;
             int row = Enumerable.Range(Plugin.VanillaMaxPlayers, Math.Max(0, rows.Count - Plugin.VanillaMaxPlayers))
@@ -343,6 +376,7 @@ internal sealed class SelfTest
         yield return new Wait(2);
 
         Check("checkbox is labelled", () => toggle.label.text == "Unlimited mod servers", () => $"'{toggle.label.text}'");
+        _probe?.Scan("server browser");
         yield return Screenshot("server-browser");
         foreach (bool expected in new[] { false, true })
         {
@@ -503,6 +537,7 @@ internal sealed class SelfTest
         {
             _log.LogWarning($"Couldn't write the results file: {e.Message}");
         }
+        _probe?.Write();
         _watcher.Dispose();
 
         // Put the player's saved Unlimited mode back. If the run stopped mid-session, that's only allowed because the
@@ -545,6 +580,9 @@ internal sealed class SelfTest
             return OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position;
         return BotPlayers.TryGetCar(player, out var car) ? car.transform.position : Vector3.positiveInfinity;
     }
+
+    // Car centres closer than about a car's width mean they spawned on top of each other; touching after landing is fine
+    const float MinCarSpacing = 2f;
 
     static float ClosestCars(NetworkRunner runner)
     {
@@ -623,6 +661,25 @@ internal sealed class SelfTest
         ScreenCapture.CaptureScreenshot(path);
         _log.LogInfo($"Screenshot at {Screen.width}x{Screen.height}: {path}");
         return new Wait(1);
+    }
+
+    // Shown pause menu rows (numbered from 1) whose gamepad "down" doesn't lead to the next shown row
+    static List<int> BrokenRowLinks(Il2CppSystem.Collections.Generic.List<ContextUIPlayerInfo> rows)
+    {
+        var shown = new List<ContextUIPlayerInfo>();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (rows[i].gameObject.activeInHierarchy)
+                shown.Add(rows[i]);
+        }
+        var broken = new List<int>();
+        for (int i = 0; i + 1 < shown.Count; i++)
+        {
+            var down = shown[i].ButtonSelector.FindSelectableOnDown();
+            if (down == null || down.Pointer != shown[i + 1].ButtonSelector.Pointer)
+                broken.Add(i + 1);
+        }
+        return broken;
     }
 
     static int HandlerCount(UIButtonSelector button) =>

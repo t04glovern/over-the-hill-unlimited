@@ -50,7 +50,8 @@ public class Plugin : BasePlugin
         // The appended layouts are built on the game's woven offsets; if an update moved them, stay vanilla everywhere
         try
         {
-            UnlimitedMode.Init(SessionPlayersCapacityPatches.State, MapNetworkCapacityPatches.State, CampCapacityPatches.State);
+            UnlimitedMode.Init(SessionPlayersCapacityPatches.State, MapNetworkCapacityPatches.State, CampCapacityPatches.State,
+                WinchCapacityPatches.State);
         }
         catch (System.Exception e)
         {
@@ -87,12 +88,19 @@ public class Plugin : BasePlugin
         _harmony.PatchAll(typeof(SessionPlayersCapacityPatches));
         _harmony.PatchAll(typeof(MapNetworkCapacityPatches));
         _harmony.PatchAll(typeof(CampCapacityPatches));
+        _harmony.PatchAll(typeof(WinchCapacityPatches));
 
-        // Pad game data with one entry per player (meteorite setups, lobby spawn points), make room for every car where
-        // players spawn in the map, and frame every car in the lobby
+        // Pad game data with one entry per player (meteorite setups and pull directions, lobby spawn points), make room
+        // for every car where players spawn or arrive in the map and for every tent at camp, and frame every car in the
+        // lobby
         _harmony.PatchAll(typeof(PerPlayerTablePatches));
         _harmony.PatchAll(typeof(CabinSpawnPointPatches));
         _harmony.PatchAll(typeof(LobbyCameraPatches));
+        _harmony.PatchAll(typeof(CampTentPatches));
+
+        // Let more than 4 cars winch an item recovery object, and give voice chat a slot for everyone
+        _harmony.PatchAll(typeof(ItemRecoveryWinchPatches));
+        _harmony.PatchAll(typeof(VoiceChatCapacityPatches));
 
         // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));

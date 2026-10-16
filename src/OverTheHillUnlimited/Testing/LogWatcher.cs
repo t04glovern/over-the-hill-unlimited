@@ -16,6 +16,13 @@ internal sealed class LogWatcher : ILogListener
 {
     static readonly Regex UnityExceptionLine = new(@"^[A-Za-z_][\w.`]*Exception: ", RegexOptions.Compiled);
 
+    // Errors the game logs about its own level data, which show up wherever a car arrives and aren't the mod's doing
+    static readonly string[] GameContentErrors = { "is not on a NavMesh" };
+
+    // Exceptions from the game's own races, by their first stack frame: HUDManager's ping icon coroutine reads the
+    // network runner without a null check, so it throws if it ticks while quitting to the menu shuts the runner down
+    static readonly string[] GameRaceFrames = { "HUDManager.UpdatePingIcon" };
+
     readonly string _ignoredSource;
     readonly string _playerLogPath;
     readonly List<string> _bepInExErrors = new();
@@ -53,6 +60,8 @@ internal sealed class LogWatcher : ILogListener
             string frame = i + 1 < lines.Length ? lines[i + 1].Trim() : "";
             if (frame.StartsWith("Parameter name") && i + 2 < lines.Length)
                 frame = lines[i + 2].Trim();
+            if (Array.Exists(GameRaceFrames, known => frame.Contains(known)))
+                continue;
             errors.Add($"Player.log: {lines[i].Trim()} {frame}");
         }
         return errors;
@@ -63,6 +72,14 @@ internal sealed class LogWatcher : ILogListener
         if ((eventArgs.Level & (LogLevel.Error | LogLevel.Fatal)) == 0 || eventArgs.Source.SourceName == _ignoredSource)
             return;
         string message = eventArgs.Data?.ToString() ?? "";
+        foreach (string known in GameContentErrors)
+        {
+            if (message.Contains(known))
+                return;
+        }
+        // Unity's exceptions reach Player.log too, where ErrorsSinceMark reads them with their stack frame
+        if (eventArgs.Source.SourceName == "Unity" && UnityExceptionLine.IsMatch(message))
+            return;
         int newline = message.IndexOf('\n');
         lock (_bepInExErrors)
             _bepInExErrors.Add($"BepInEx [{eventArgs.Source.SourceName}]: {(newline < 0 ? message : message[..newline])}");

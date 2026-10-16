@@ -6,8 +6,8 @@ using OverTheHillUnlimited.Networking;
 namespace OverTheHillUnlimited.Patches;
 
 /// <summary>
-/// Makes Fusion size the session from the Create Server menu. The game always starts hosts with
-/// StartGameArgs.PlayerCount = 4 (it enforces smaller menu choices itself), and ships Fusion's default,
+/// Makes Fusion size the session from the Create Server menu. The game starts hosts with
+/// StartGameArgs.PlayerCount = Math.Min(GameSetupContext.MaxPlayers, 4), and ships Fusion's default,
 /// NetworkProjectConfig.Simulation.PlayerCount, as 4 too.
 ///
 /// The args are changed inside Fusion's StartGameModeCloud async state machine, which keeps them in a field and
