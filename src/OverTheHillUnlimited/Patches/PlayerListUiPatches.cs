@@ -6,10 +6,10 @@ using UnityEngine;
 namespace OverTheHillUnlimited.Patches;
 
 /// <summary>
-/// The game's player UIs hold one element per vanilla slot and loop over the whole player list, so with
-/// the expanded list they index past their UI lists and throw (pause menu, map pinpoints). While these
-/// methods run, OrderedPlayerRefs reports only the first 4 slots and the UI behaves exactly as vanilla.
-/// Players in slots 5+ don't show in these UIs until the UIs themselves get more elements.
+/// The pause menu and map hold one element per vanilla slot and loop over the whole player list, so with the
+/// expanded list they index past their UI lists and throw. While these methods run, OrderedPlayerRefs reports only
+/// the first 4 slots and the UI behaves exactly as vanilla, so players in slots 5+ don't show in them. (The map keeps
+/// parallel lists of player markers and pin rects, so it isn't padded like the UIs in PerPlayerUiPatches yet.)
 /// </summary>
 [HarmonyPatch]
 public class PlayerListUiPatches
@@ -31,8 +31,6 @@ public class PlayerListUiPatches
         yield return AccessTools.Method(typeof(MapView), nameof(MapView.UpdatePlayerIndicators));
         yield return AccessTools.Method(typeof(MapView), nameof(MapView.UpdatePlayersPinpoints));
         yield return AccessTools.Method(typeof(MapView), nameof(MapView.IsPlayerPinpoint));
-        yield return AccessTools.Method(typeof(CarHealthUI), nameof(CarHealthUI.SetupPlayerCarHealthStatus));
-        yield return AccessTools.Method(typeof(CompassController), nameof(CompassController.UpdateOtherCarsCompassIcon));
     }
 
     static void Prefix()

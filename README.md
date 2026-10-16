@@ -20,8 +20,9 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
 | Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
-| Pause menu, map, compass and car health UI | Working, but they only show the first 4 players |
-| Car repair and tool selection menus with 5+ players | Untested, may break (they size their UI by player count) |
+| Pause menu and map | Working, but they only show the first 4 players |
+| Lobby name labels, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players from 0.2.1; untested with 5+ |
+| Colours for players 5+ | The game's default colour (its colour lookup only knows 4) |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
 | Switching between modded and vanilla in game | Verified: the "Unlimited mod servers" checkbox in the server browser switches the list and Max Players |
@@ -156,10 +157,23 @@ vanilla versions live.
 
 ### 3. UI built for 4 players
 
-Some UIs keep one element per player but loop over the whole player list. With 16 slots, the pause menu and the map threw
-`ArgumentOutOfRangeException`, which broke pause menu navigation. `PlayerListUiPatches` makes the player list report only
-its first 4 slots while those UI methods run. The compass and car health UI get the same treatment as a precaution. They
-all work as before, but players 5 and up don't appear in them yet.
+Several UIs keep one pre-built element per player, laid out in the menus or HUD, and index it by the player's position
+in a loop over the players. With 5 players they read past the end with `ArgumentOutOfRangeException`. There are two
+fixes:
+
+- **Padding** (`PerPlayerUiPatches`): a prefix on each method that indexes the list pads it to 16 with hidden clones of
+  its last element, and the game shows the ones it uses, as it does its own. This applies to the lobby name labels
+  (`StateLobbyMenu.UpdateCarsStatus`), the car repair buttons (`StateCarRepair`), the tool selection menu's car health
+  buttons and tool panels (`StateSelectTool`), the HUD's car health markers (`CarHealthUI`), and its portable winch
+  anchor markers (`HUDManager.portableWinchAnchorIndicators`, an array). The game positions all of these itself, mostly
+  over a car or anchor in the world, so clones need no layout. Players 5 and up get their own.
+- **Clamping** (`PlayerListUiPatches`): the pause menu and the map make the player list report only its first 4 slots
+  while their methods run. They work as before, but players 5 and up don't appear in them yet. The map keeps parallel
+  lists of player markers and pin positions, which makes padding it riskier.
+
+The compass builds its icons as it needs them, so it handles any number of players. Player colours and pin flares come
+from a switch on the player's slot with a default case, so players 5 and up get the default colour rather than an
+error. Player notifications come from a shared pool, not one per slot.
 
 ### 4. Game data sized for 4 players
 
@@ -244,7 +258,8 @@ src/OverTheHillUnlimited/
     PerPlayerTablePatches.cs          game data with one entry per player
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
-    PlayerListUiPatches.cs            UIs built for 4 players
+    PerPlayerUiPatches.cs             UI with one element per player, padded to 16
+    PlayerListUiPatches.cs            pause menu and map, clamped to 4
     SessionDiagnosticsPatches.cs      VerboseLogging output
 tools/
   Build-Release.ps1                   build and package a release zip
@@ -268,6 +283,13 @@ IL2CPP compiles the game to native code, so there's no `Assembly-CSharp.dll` wit
 every type and field, Fusion's weaving attributes (`[Capacity]`, `[NetworkedWeaved(offset, words)]`,
 `[NetworkBehaviourWeaved(words)]`), and `[Calls]`/`[CalledBy]` cross-references. That's how the patch targets were found.
 Re-run it after game updates, and check that the vanilla word counts in the patch classes still match.
+
+For what a method actually does, run `tools/Dump-GameCode.ps1 -Format isil`. It writes every method's machine code as
+ISIL to `.dump/isil/IsilDump/` (about 700 MB), with calls resolved to names. That shows constants, comparisons, the field
+offsets a method reads (match them to the `Field offset` comments in the stubs) and bounds checks. A list index check
+calls `ThrowHelper.ThrowArgumentOutOfRange_IndexException`. The search for 4-player assumptions scanned it for methods
+that read player data and then index a list or array, or compare against a hard-coded 3, 4 or 5. There were no
+hard-coded comparisons: the cap is all in data sized for 4.
 
 Logs:
 - The mod's output is in `BepInEx/LogOutput.log`.
@@ -298,11 +320,13 @@ Logs:
 - [x] Make Fusion's change detection notice changes in the appended state (map pins redrew late)
 - [x] Release builds
 - [x] First 5-player session: a 5th player joined; lobby spawn points and meteorite setups errored, now padded
-- [ ] Retest 5+ players with all modded, and confirm the appended state syncs between them
-- [ ] Check the car repair and tool selection menus with 5+ players, and player colours (`UIManager.GetPlayerColor`)
 - [x] Keep players without the mod out (a separate Photon AppVersion), since Fusion rejects the expanded objects on
       their side
-- [ ] Give the 4-slot UIs more elements so players 5 and up show up
+- [x] Search the game code for other 4-player assumptions, and pad the UIs that index per-player elements
+- [ ] Retest 5+ players with everyone on 0.2.1: lobby name labels, car repair and tool selection menus, car health and
+      winch anchor markers, compass
+- [ ] Pad the pause menu and map too, so players 5 and up show there
+- [ ] Colours of their own for players 5 and up
 
 ## Credits
 

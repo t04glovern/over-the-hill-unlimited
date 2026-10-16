@@ -70,7 +70,10 @@ public class Plugin : BasePlugin
         // Pad game data with one entry per player (meteorite setups, lobby spawn points)
         _harmony.PatchAll(typeof(PerPlayerTablePatches));
 
-        // Keep UIs built for 4 players working against the larger player list
+        // Pad UIs with one element per player (lobby labels, repair/tool menus, car health and winch anchor markers)
+        _harmony.PatchAll(typeof(PerPlayerUiPatches));
+
+        // Show only the first 4 players in the UIs that aren't padded yet (pause menu, map)
         _harmony.PatchAll(typeof(PlayerListUiPatches));
 
         // Keep unmodded players out: they can't use the expanded objects
