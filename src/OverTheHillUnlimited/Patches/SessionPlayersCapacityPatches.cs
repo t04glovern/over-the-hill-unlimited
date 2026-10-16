@@ -12,14 +12,20 @@ namespace OverTheHillUnlimited.Patches;
 public class SessionPlayersCapacityPatches
 {
     // From [NetworkBehaviourWeaved(390)]; vanilla ranges from each property's [NetworkedWeaved(offset, words)]
-    internal static readonly ExpandedState State = new(nameof(OverlandSessionPlayers), 390);
+    internal static readonly ExpandedState State = ExpandedState.For<OverlandSessionPlayers>(390);
 
-    static readonly int OrderedPlayerRefsOffset = State.AddArray(new(351, 4), elementWords: 1);
-    static readonly int PlayerColorsOffset = State.AddArray(new(355, 4), elementWords: 1);
-    static readonly int BusyReasonOffset = State.AddDictionary(new(359, 31), keyWords: 1, valueWords: 1);
-    static readonly int DevTeamOffset = State.AddDictionary(new(320, 31), keyWords: 1, valueWords: 1);
-    static readonly int SupporterEditionOffset = State.AddDictionary(new(289, 31), keyWords: 1, valueWords: 1);
-    static readonly int NameOffset = State.AddDictionary(new(34, 255), keyWords: 1, valueWords: 33); // NetworkString<_32>
+    static readonly int OrderedPlayerRefsOffset =
+        State.AddArray(nameof(OverlandSessionPlayers.OrderedPlayerRefs), new(351, 4), elementWords: 1);
+    static readonly int PlayerColorsOffset =
+        State.AddArray(nameof(OverlandSessionPlayers.PlayerColors), new(355, 4), elementWords: 1);
+    static readonly int BusyReasonOffset =
+        State.AddDictionary(nameof(OverlandSessionPlayers.BusyPlayerRefToBusyReason), new(359, 31), keyWords: 1, valueWords: 1);
+    static readonly int DevTeamOffset =
+        State.AddDictionary(nameof(OverlandSessionPlayers.PlayerRefToDevTeamMembership), new(320, 31), keyWords: 1, valueWords: 1);
+    static readonly int SupporterEditionOffset =
+        State.AddDictionary(nameof(OverlandSessionPlayers.PlayerRefToSupporterEditionOwnership), new(289, 31), keyWords: 1, valueWords: 1);
+    static readonly int NameOffset = // values are NetworkString<_32>
+        State.AddDictionary(nameof(OverlandSessionPlayers.PlayerRefToNameDictionary), new(34, 255), keyWords: 1, valueWords: 33);
 
     [HarmonyPatch(typeof(NetworkBehaviourUtils), nameof(NetworkBehaviourUtils.GetWordCount))]
     [HarmonyPostfix]

@@ -70,9 +70,14 @@ internal sealed class SelfTest
     public IEnumerator<object> Run()
     {
         _log.LogInfo("Self-test starting: hosting a session and filling it with bot players");
-        _savedMode = UnlimitedMode.Enabled;
+        _savedMode = Plugin.ConfigExpandPlayerSlots.Value;
 
         Section("Setup");
+        if (!Check("the game's networked layout matches the mod", () => UnlimitedMode.Available))
+        {
+            Finish();
+            yield break;
+        }
         if (!UnlimitedMode.Enabled)
             Check("Unlimited mode switched on", () => UnlimitedMode.TrySetEnabled(true));
         yield return new Until("main menu", () => GameStateManager.Instance?.PeekState()?.TryCast<StateMainMenu>() != null, 300);
@@ -109,6 +114,12 @@ internal sealed class SelfTest
         var camp = Object.FindObjectOfType<CampManager>();
         Check("camp state expanded", () => camp == null || CampCapacityPatches.State.IsExpanded(camp),
             () => "no CampManager in this area");
+        Check("Unlimited mode can't be switched mid-session", () => !UnlimitedMode.TrySetEnabled(false) && UnlimitedMode.Enabled);
+        Do("saved setting changed from outside the mod", () => Plugin.ConfigExpandPlayerSlots.Value = false);
+        Check("the change is undone", () => Plugin.ConfigExpandPlayerSlots.Value && UnlimitedMode.Enabled);
+        Record($"INFO {_section}: per call, an unpatched networked getter takes {MicrosecondsPerCall(() => _ = Players.HostPlayerRef):F1} µs, " +
+               $"the expanded player order {MicrosecondsPerCall(() => _ = Players.OrderedPlayerRefs):F1} µs, " +
+               $"the expanded busy states {MicrosecondsPerCall(() => _ = Players.BusyPlayerRefToBusyReason):F1} µs");
         EndSection();
 
         Section("Bots join the lobby");
@@ -201,11 +212,7 @@ internal sealed class SelfTest
                          () => $"{map.pinpointIndicators.Count} pins, {map.pinpointIndicatorsRectTransforms.Count} rects");
                  }))
             yield return step;
-        foreach (var step in OpenMenu("Pause menu", () => new StatePauseMenu(), state =>
-                 {
-                     var rows = state.TryCast<StatePauseMenu>().contextUIPauseMenu.PlayerInfos;
-                     Check("a row for every player", () => CountActive(rows) == maxPlayers, () => $"{CountActive(rows)} rows shown");
-                 }))
+        foreach (var step in OpenMenu("Pause menu", () => new StatePauseMenu(), PauseMenuSteps))
             yield return step;
         foreach (var step in OpenMenu("Car repair menu", () => new StateCarRepair(carDamage, 0), state =>
                  {
@@ -248,6 +255,29 @@ internal sealed class SelfTest
             yield return step;
 
         Finish();
+
+        // Rows for players 5 and up are padded clones, so check they open the player options like the game's own rows
+        IEnumerable<object> PauseMenuSteps(FunCore.StateMachine.State state)
+        {
+            var rows = state.TryCast<StatePauseMenu>().contextUIPauseMenu.PlayerInfos;
+            Check("a row for every player", () => CountActive(rows) == maxPlayers, () => $"{CountActive(rows)} rows shown");
+            Check("every row has one click handler", () => Enumerable.Range(0, rows.Count).All(i => HandlerCount(rows[i].ButtonSelector) == 1),
+                () => string.Join(", ", Enumerable.Range(0, rows.Count).Select(i => HandlerCount(rows[i].ButtonSelector))));
+
+            var ordered = Players.OrderedPlayerRefs;
+            int row = Enumerable.Range(Plugin.VanillaMaxPlayers, Math.Max(0, rows.Count - Plugin.VanillaMaxPlayers))
+                .Where(i => i < ordered.Length && rows[i].gameObject.activeSelf && bots.Any(b => b.RawEncoded == ordered[i].RawEncoded))
+                .DefaultIfEmpty(-1).Last();
+            if (!Check("a bot has a padded row", () => row >= 0))
+                yield break;
+            string name = BotName(ordered[row]);
+            Do($"click {name}'s row (row {row + 1})", () => rows[row].ButtonSelector.OnPointerClickOrSubmit.Invoke(rows[row].ButtonSelector));
+            yield return new Wait(1);
+            Check($"{name}'s player options open", () => GameStateManager.Instance.PeekState()?.TryCast<StatePauseMenuPlayerOptions>() != null,
+                () => $"top state is {GameStateManager.Instance.PeekState()?.GetIl2CppType().Name}");
+            Do("player options close", () => GameStateManager.Instance.PopState());
+            yield return new Wait(1);
+        }
     }
 
     // Clicks the server browser's Unlimited mod servers checkbox through its real click handler, twice
@@ -260,17 +290,31 @@ internal sealed class SelfTest
             yield break;
         }
         yield return new Until("server browser checkbox", () => ServerBrowserTogglePatches.Toggle != null, 60);
-        yield return new Until("lobby connection", () => OverlandNetworkRunner.Instance?.IsConnectedToLobby == true, 60);
+        var toggle = ServerBrowserTogglePatches.Toggle;
+
+        // Sampled every frame until the lobby is connected: a click before then would leave the first connection open
+        int framesConnecting = 0, framesClickable = 0;
+        yield return new Until("lobby connection", () =>
+        {
+            if (OverlandNetworkRunner.Instance?.IsConnectedToLobby == true)
+                return true;
+            framesConnecting++;
+            if (toggle.buttonSelector.interactable)
+                framesClickable++;
+            return false;
+        }, 60);
+        Check($"checkbox disabled while the lobby connects ({framesConnecting} frames)", () => framesClickable == 0,
+            () => $"clickable for {framesClickable} frames");
         yield return new Wait(2);
 
-        var toggle = ServerBrowserTogglePatches.Toggle;
         Check("checkbox is labelled", () => toggle.label.text == "Unlimited mod servers", () => $"'{toggle.label.text}'");
         foreach (bool expected in new[] { false, true })
         {
             Do($"click switches Unlimited mode {(expected ? "on" : "off")}", () => toggle.buttonSelector.OnPointerClickOrSubmit.Invoke(toggle.buttonSelector));
             Check($"Unlimited mode is {(expected ? "on" : "off")}", () => UnlimitedMode.Enabled == expected);
-            Check("checkbox waits for the lobby to reconnect", () => ServerBrowserTogglePatches.IsReconnecting && !toggle.buttonSelector.interactable);
-            yield return new Until("lobby reconnects", () => !ServerBrowserTogglePatches.IsReconnecting, 30);
+            Check("checkbox waits for the lobby to reconnect", () => ServerBrowserTogglePatches.IsWaitingForLobby && !toggle.buttonSelector.interactable);
+            yield return new Until("lobby reconnects", () => !ServerBrowserTogglePatches.IsWaitingForLobby, 30);
+            yield return new Wait(0.5f);
             Check("checkbox usable again", () => toggle.buttonSelector.interactable);
         }
         Do("server browser closes", () => GameStateManager.Instance.PopState());
@@ -302,6 +346,9 @@ internal sealed class SelfTest
         Check("map state not expanded", () => !MapNetworkCapacityPatches.State.IsExpanded(MapNetworkManager.Instance));
         Check("vanilla player list has 4 slots", () => Players.OrderedPlayerRefs.Length == Plugin.VanillaMaxPlayers,
             () => $"{Players.OrderedPlayerRefs.Length}");
+        Check("Fusion's default player count is back to the vanilla 4",
+            () => NetworkProjectConfig.Global.Simulation.PlayerCount == Plugin.VanillaMaxPlayers,
+            () => $"{NetworkProjectConfig.Global.Simulation.PlayerCount}");
         EndSection();
     }
 
@@ -321,7 +368,14 @@ internal sealed class SelfTest
 
     static OverlandSessionPlayers Players => OverlandSessionPlayers.Instance;
 
-    IEnumerable<object> OpenMenu(string name, Func<FunCore.StateMachine.State> create, Action<FunCore.StateMachine.State> check)
+    IEnumerable<object> OpenMenu(string name, Func<FunCore.StateMachine.State> create, Action<FunCore.StateMachine.State> check) =>
+        OpenMenu(name, create, state =>
+        {
+            check(state);
+            return Enumerable.Empty<object>();
+        });
+
+    IEnumerable<object> OpenMenu(string name, Func<FunCore.StateMachine.State> create, Func<FunCore.StateMachine.State, IEnumerable<object>> steps)
     {
         Section(name);
         FunCore.StateMachine.State state = null;
@@ -331,7 +385,8 @@ internal sealed class SelfTest
             yield break;
         }
         yield return new Wait(3);
-        check(state);
+        foreach (var step in steps(state))
+            yield return step;
         Do("closes", () => GameStateManager.Instance.PopState());
         yield return new Wait(2);
         EndSection();
@@ -414,87 +469,23 @@ internal sealed class SelfTest
         }
         _watcher.Dispose();
 
-        // Put the player's saved Unlimited mode back. Set directly: switching normally isn't allowed mid-session.
-        if (_savedMode.HasValue)
-            Plugin.ConfigExpandPlayerSlots.Value = _savedMode.Value;
+        // Put the player's saved Unlimited mode back. If the run stopped mid-session, that's only allowed because the
+        // game is about to quit.
+        bool quit = !HasArgument(StayFlag);
+        if (_savedMode.HasValue && Plugin.ConfigExpandPlayerSlots.Value != _savedMode.Value)
+        {
+            if (quit)
+                UnlimitedMode.SaveForNextLaunch(_savedMode.Value);
+            else if (!UnlimitedMode.TrySetEnabled(_savedMode.Value))
+                _log.LogWarning("Still in a session, so your saved Unlimited mode setting wasn't restored");
+        }
 
-        if (!HasArgument(StayFlag))
+        if (quit)
             Application.Quit();
     }
 
-    // The area to host in: by name if given, otherwise the first area of the first region. The region list comes from
-    // the game's own loader, with the same path BenchmarkBootRunner.ResolveArea and the server list filter use.
-    AreaInfo FindArea(string name)
-    {
-        const string path = "Data/Game/Regions/RegionsList";
-        var areas = new List<AreaInfo>();
-        var manager = ResourcesManager.Instance;
-        _log.LogInfo($"ResourcesManager.Instance: {(manager == null ? "null" : "ok")}");
-        RegionsList loaded = null;
-        try
-        {
-            loaded = manager?.Load<RegionsList>(path, null);
-            _log.LogInfo($"ResourcesManager.Load: {Describe(loaded)}");
-        }
-        catch (Exception e)
-        {
-            _log.LogInfo($"ResourcesManager.Load threw {e.GetType().Name}: {FirstLine(e.Message)}");
-        }
-        AddAreas(loaded, areas);
-        if (areas.Count == 0)
-        {
-            var raw = Resources.Load(path);
-            _log.LogInfo($"Resources.Load: {(raw == null ? "null" : raw.GetIl2CppType().FullName)}");
-            AddAreas(raw?.TryCast<RegionsList>(), areas);
-        }
-        if (areas.Count == 0)
-        {
-            foreach (var regions in Resources.FindObjectsOfTypeAll<RegionsList>())
-                AddAreas(regions, areas);
-        }
-        if (areas.Count == 0)
-        {
-            foreach (string guess in new[] { name, "", null })
-            {
-                try
-                {
-                    var resolved = BenchmarkBootRunner.ResolveArea(guess);
-                    _log.LogInfo($"ResolveArea({(guess == null ? "null" : $"'{guess}'")}): {(resolved == null ? "null" : resolved.name)}");
-                    if (resolved != null)
-                    {
-                        areas.Add(resolved);
-                        break;
-                    }
-                }
-                catch (Exception e)
-                {
-                    _log.LogInfo($"ResolveArea threw {e.GetType().Name}: {FirstLine(e.Message)}");
-                }
-            }
-        }
-
-        _log.LogInfo($"Areas found: {string.Join(", ", areas.Select(a => a.name))}");
-        return areas.FirstOrDefault(a => string.IsNullOrEmpty(name) || string.Equals(a.name, name, StringComparison.OrdinalIgnoreCase));
-    }
-
-    static string Describe(RegionsList regions) =>
-        regions == null ? "null" : $"{regions.Regions?.Count ?? -1} regions";
-
-    static void AddAreas(RegionsList regions, List<AreaInfo> areas)
-    {
-        if (regions?.Regions == null)
-            return;
-        foreach (var region in regions.Regions)
-        {
-            if (region?.Areas == null)
-                continue;
-            foreach (var area in region.Areas)
-            {
-                if (area != null)
-                    areas.Add(area);
-            }
-        }
-    }
+    // The area to host in, looked up the way the game's benchmark mode does: by name, or its default area for null
+    static AreaInfo FindArea(string name) => BenchmarkBootRunner.ResolveArea(name);
 
     static List<PlayerRef> AllPlayers(NetworkRunner runner)
     {
@@ -511,6 +502,18 @@ internal sealed class SelfTest
                 return i;
         }
         return -1;
+    }
+
+    static int HandlerCount(UIButtonSelector button) =>
+        button.OnPointerClickOrSubmit?.GetInvocationList().Length ?? 0;
+
+    static double MicrosecondsPerCall(Action call, int calls = 2000)
+    {
+        call();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < calls; i++)
+            call();
+        return watch.Elapsed.TotalMilliseconds * 1000 / calls;
     }
 
     static int CountActive<T>(Il2CppSystem.Collections.Generic.List<T> elements) where T : Component

@@ -20,7 +20,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
 | Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
-| Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players |
+| Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players. Pause menu rows 5+ open their player options (fixed in 0.3.0) |
+| Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
 | Colours for players 5+ | Their own colours on Windows (self-test); the game's default colour on native Linux |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
@@ -87,7 +88,7 @@ To uninstall, clear the launch option, then untick the compatibility option to g
 
 | Setting | Default | Description |
 |---|---|---|
-| `General.MaxPlayers` | `8` | Highest option in the Max Players menu, 1 to 16. |
+| `General.MaxPlayers` | `8` | Highest option in the Max Players menu in Unlimited mode, 4 to 16. The vanilla 2 to 4 are always offered. |
 | `General.ExpandPlayerSlots` | `true` | Unlimited mode, the same setting as the **Unlimited mod servers** checkbox in the server browser. Off means vanilla behaviour, for playing with people who don't have the mod (4 players max). |
 | `Debug.VerboseLogging` | `false` | Log the session size and player list as players join and leave. Useful for testing. |
 
@@ -112,7 +113,7 @@ Create Server menu ──► GameSetupContext.MaxPlayers ──X   game always p
   (Patching `NetworkRunner.StartGame(StartGameArgs)` directly works on Windows but crashes on native Linux; see
   [Gotchas](#gotchas).)
 - It also raises Fusion's default player count, `NetworkProjectConfig.Simulation.PlayerCount` (shipped as 4), to 16
-  on every modded peer.
+  on every modded peer, and puts it back to 4 in vanilla mode.
 
 ### 2. Fixed-size networked state
 
@@ -152,18 +153,19 @@ OverlandSessionPlayers state block (replicated by Fusion)
 
 [`Networking/ExpandedState.cs`](src/OverTheHillUnlimited/Networking/ExpandedState.cs) holds the layout maths, builds the
 collections and signals changes. Each behaviour has a small patch class that declares its collections and where their
-vanilla versions live.
+vanilla versions live. At startup the mod checks those against the game's own weaving attributes (see
+[Safety](#safety)).
 
 ### 3. UI built for 4 players
 
 Several UIs keep one pre-built element per player, laid out in the menus or HUD, and index it by the player's slot or
 position in a loop over the players. With 5 players they read past the end with `ArgumentOutOfRangeException`.
-`PerPlayerUiPatches` pads each list to 16 with hidden clones of its last element. The padding runs in a prefix on the
-method that indexes the list first, and the game shows the clones it uses, as it does its own. This covers:
+`PerPlayerUiPatches` pads each list to 16 with hidden clones of its last element. The padding runs in prefixes on the
+methods that index the list, and the game shows the clones it uses, as it does its own. This covers:
 
 - the lobby name labels (`StateLobbyMenu.UpdateCarsStatus`)
 - the pause menu's player rows (`StatePauseMenu.SetupMenu`)
-- the map's player markers and pins (`MapView.OnEnable`)
+- the map's player markers and pins (`MapView.OnEnable`, `SetupPlayerNames` and `UpdatePlayersPinpoints`)
 - the car repair buttons (`StateCarRepair`)
 - the tool selection menu's car health buttons and tool panels (`StateSelectTool`)
 - the HUD's car health markers (`CarHealthUI`) and portable winch anchor markers (`HUDManager.portableWinchAnchorIndicators`,
@@ -171,6 +173,11 @@ method that indexes the list first, and the game shows the clones it uses, as it
 
 The game positions these elements itself: most track a car or anchor in the world, and hidden rows take no space in a
 layout group. So clones need no layout, and players 5 and up get their own.
+
+`Instantiate` doesn't copy event handlers that the game adds in code. The pause menu adds each row's click handler, which
+opens that player's options (kick, mute, volume), in `StatePauseMenu.Open` before it calls `SetupMenu`. So the padding
+adds the same handler, `OpenPlayerMenu(row, slot)`, to each row it creates. The other padded elements are either not
+clickable or are wired up after the padding runs.
 
 The map also keeps `pinpointIndicatorsRectTransforms`, parallel to its pins, and fills it with a hard-coded loop over
 the first 4 pins. A prefix on `MapView.UpdatePlayerPinpoint` adds the rects for the padded pins.
@@ -186,10 +193,10 @@ that's the kind of struct Il2CppInterop's trampolines get wrong there. Flares ke
 Some game data has one entry per player, and the code indexes it by player count or slot. With 5 players, it reads
 past the end. `PerPlayerTablePatches` pads each table up to 16 entries the first time the game reads it:
 
-- `MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount`, indexed by `ActivePlayers.Count()`, gets copies of
+- `MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount`, indexed by `ActivePlayers.Count() - 1`, gets copies of
   its 4-player entry.
 - `Lobby.spawnPoints`, indexed by the player's slot, gets clones of the 4 vanilla spawn points, in extra rows 8 m in
-  front of them. Their placeholder car previews are hidden.
+  front of them.
 
 ### Why everyone needs the mod
 
@@ -200,31 +207,43 @@ following `MaxPlayers`.
 A player without the mod can't simply ignore the extra words. When a client sets up an object from the server, Fusion's
 `NetworkRunner.InitializeNetworkObjectInstance` asserts that the object's word count matches the client's own, and an
 unmodded client's doesn't. So `ModdedLobbyPatches` keeps the two groups apart. Modded players connect to Photon with the
-game's AppVersion plus a suffix built from the layout, e.g. `-unlimited.16.1250.354.26`. The game builds its Photon
-settings in `OverlandNetworkRunner.BuildCustomAppSetting`, for both the server browser and starting a session, and a
-postfix appends the suffix there. Photon only matches players with the same AppVersion, so unmodded players never see
-or join modded servers, and modded players don't see vanilla ones. Mod versions whose layouts differ are kept apart
-the same way. With Unlimited mode off, the AppVersion is left alone, so you're matched with vanilla players again.
+game's AppVersion plus a suffix built from a protocol number and the layout, e.g. `-unlimited.p1.16.1250.354.26`. The
+game builds its Photon settings in `OverlandNetworkRunner.BuildCustomAppSetting`, for both the server browser and
+starting a session, and a postfix appends the suffix there. Photon only matches players with the same AppVersion, so
+unmodded players never see or join modded servers, and modded players don't see vanilla ones. Mod versions whose
+layouts differ are kept apart the same way. The protocol number is bumped when the appended state changes meaning
+without changing size. With Unlimited mode off, the AppVersion is left alone, so you're matched with vanilla players
+again.
 
 ### Switching modes
 
-`UnlimitedMode` is a runtime switch, saved as `ExpandPlayerSlots`. Every patch is applied at startup either way. The
-patches that change the network layout (`GetWordCount`), matchmaking (AppVersion), the session size, the Max Players
-options and the per-player tables check the switch. The rest follow from whether an object actually got bigger, so with
-the switch off the game behaves exactly as vanilla. Networked objects keep the layout they were created with, so the
-switch only changes outside a session.
+`UnlimitedMode` is a runtime switch, saved as `ExpandPlayerSlots`. Every patch is applied at startup either way, and
+every patch that changes behaviour checks the switch, so with it off the game behaves as vanilla. The getters only
+return the expanded collections for objects that were actually created bigger.
+
+Networked objects keep the layout they were created with, so the switch only changes outside a session. That's from
+when the runner joins the session's Photon room (`NetworkRunner.IsInSession`, before the session's objects spawn) until
+those objects are gone. A change to the config made during a session by something outside the mod, such as a config
+manager, is undone.
 
 `ServerBrowserTogglePatches` adds the **Unlimited mod servers** checkbox. When the server list starts, it clones the
 game's own "Hide private servers" filter. It places the clone after that filter, following the same step as the
 game's first two filters (unless a layout group arranges them), and splices it into controller navigation.
 `ContextUIServerList.SetFilterChecked` draws the tick. Clicking it flips the switch and re-applies the Max Players options
 to any open Create Server menu. It then calls `ContextUIServerList.ServerRegionOnChanged` with the current region, the
-same path as picking a region. That reconnects the lobby with the new AppVersion, and the list repopulates.
+same path as picking a region. That reconnects the lobby with the new AppVersion, and the list repopulates. If the
+reconnect fails, the switch goes back. The checkbox is disabled until the lobby is connected and the game's region
+dropdown is idle. That covers the first connection when the browser opens and a reconnect still in progress, either of
+which would otherwise leave a connection open with the old AppVersion.
 
 ### Safety
 
-- The mod checks each behaviour's vanilla word count at runtime. If a game update changes it, the mod logs an error and
-  leaves that behaviour at 4 slots, rather than writing to a layout it doesn't understand.
+- At startup the mod reads the game's own weaving attributes, the same ones Fusion builds the state from. These are
+  each behaviour's `[NetworkBehaviourWeaved]` word count and each expanded property's `[NetworkedWeaved]` range. If a
+  game update has added, moved or resized anything the mod relies on, it logs an error and Unlimited mode is
+  unavailable. The checkbox reads "Unlimited mod (needs update)", and the whole game stays vanilla (matchmaking, Max
+  Players, layout), so it never writes to a layout it doesn't understand. Everyone on that game version falls back the
+  same way, so they can still play together, 4 at a time.
 - If any patch fails to apply, for example because a game update renamed a method, the mod removes all of its patches
   and logs an error. A half-patched game is worse than a vanilla one.
 - With Unlimited mode off, every patch leaves the game's behaviour vanilla.
@@ -251,16 +270,23 @@ locked. If the game isn't in the default Steam location, copy `Config.Build.user
 ### Testing without other players
 
 Launch the game with `-otu-selftest` and it tests itself:
-1. It waits for the main menu and hosts a session in Unlimited mode.
-2. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default).
-3. It exercises everything that indexes per-player data: the player registry, lobby spawn points and name labels, busy
+1. It checks that the game's networked layout matches the mod, waits for the main menu, and hosts a session in
+   Unlimited mode.
+2. It checks that the mode can't be switched mid-session, not even by editing the setting directly.
+3. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default).
+4. It exercises everything that indexes per-player data: the player registry, lobby spawn points and name labels, busy
    states, map pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD,
-   and the map, pause, car repair and tool selection menus.
-4. It removes the bots and quits to the main menu.
-5. In the server browser, it clicks the **Unlimited mod servers** checkbox through its real click handler, off and back
-   on, and checks that the lobby reconnects each time.
-6. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded).
-7. It restores your saved Unlimited mode setting and quits.
+   and the map, pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks
+   that their player options open.
+5. It removes the bots and quits to the main menu.
+6. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
+   Then it clicks the checkbox through its real click handler, off and back on, and checks that the lobby reconnects
+   each time.
+7. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
+   default player count back to 4).
+8. It restores your saved Unlimited mode setting and quits.
+
+It also logs how long the expanded getters take compared with an unpatched one.
 
 Each section also fails if the game or BepInEx logged an error during it. Results go to `BepInEx/LogOutput.log` (source
 `OTU Self-test`) and to `BepInEx/OverTheHillUnlimited-selftest.txt`. Add `-otu-selftest-stay` to keep the game open
@@ -324,7 +350,8 @@ IL2CPP compiles the game to native code, so there's no `Assembly-CSharp.dll` wit
 `.dump/diffable/DiffableCs/`, which is gitignored; don't commit game code. The stubs have no method bodies. They do have
 every type and field, Fusion's weaving attributes (`[Capacity]`, `[NetworkedWeaved(offset, words)]`,
 `[NetworkBehaviourWeaved(words)]`), and `[Calls]`/`[CalledBy]` cross-references. That's how the patch targets were found.
-Re-run it after game updates, and check that the vanilla word counts in the patch classes still match.
+If the mod logs that the game's layout doesn't match after a game update, re-run it and update the ranges in the
+capacity patch classes from the new attributes.
 
 For what a method actually does, run `tools/Dump-GameCode.ps1 -Format isil`. It writes every method's machine code as
 ISIL to `.dump/isil/IsilDump/` (about 700 MB), with calls resolved to names. That shows constants, comparisons, the field
@@ -347,8 +374,10 @@ Logs:
   `ContextUICreateServer.maxPlayersOptionsRange`.
 - Don't patch `NetworkBehaviour.DynamicWordCount`. IL2CPP deduplicated it, so its native code is shared with
   unrelated methods. Patch `NetworkBehaviourUtils.GetWordCount` instead.
-- The interop wrapper misreports `StartGameArgs.PlayerCount` (a `Nullable<int>`) as 0, so `SessionSizePatches` reads
-  the raw struct.
+- The interop wrapper misreports `Nullable<int>` fields such as `StartGameArgs.PlayerCount` as 0. Check the session's
+  real size with `NetworkRunner.SessionInfo.MaxPlayers` instead, as the self-test does.
+- `Object.Instantiate` copies serialized UnityEvents, but not C# event handlers the game adds in code. Before padding a
+  list of clickable elements, check whether the game wires them up before or after the padding runs.
 - Don't patch methods that take a large struct by value, such as `NetworkRunner.StartGame(StartGameArgs)`. On Windows
   (Microsoft x64) the struct arrives as a pointer to a copy. On Linux (System V) it's copied onto the stack, which
   Il2CppInterop's trampolines don't handle, so native Linux crashes with a SIGSEGV. Patch somewhere that holds the struct

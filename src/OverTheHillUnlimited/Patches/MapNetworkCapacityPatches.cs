@@ -11,11 +11,14 @@ namespace OverTheHillUnlimited.Patches;
 public class MapNetworkCapacityPatches
 {
     // From [NetworkBehaviourWeaved(107)]; vanilla ranges from each property's [NetworkedWeaved(offset, words)]
-    internal static readonly ExpandedState State = new(nameof(MapNetworkManager), 107);
+    internal static readonly ExpandedState State = ExpandedState.For<MapNetworkManager>(107);
 
-    static readonly int PinpointPositionOffset = State.AddDictionary(new(0, 45), keyWords: 1, valueWords: 3); // Vector3
-    static readonly int PinpointObjectOffset = State.AddDictionary(new(45, 31), keyWords: 1, valueWords: 1); // NetworkObject as its NetworkId
-    static readonly int WinchAnchorOffset = State.AddDictionary(new(76, 31), keyWords: 1, valueWords: 1);
+    static readonly int PinpointPositionOffset = // values are Vector3
+        State.AddDictionary(nameof(MapNetworkManager.PlayerRefToPinpointPosition), new(0, 45), keyWords: 1, valueWords: 3);
+    static readonly int PinpointObjectOffset = // values are NetworkObjects, stored as their NetworkId
+        State.AddDictionary(nameof(MapNetworkManager.PlayerRefToPinpointNetworkObject), new(45, 31), keyWords: 1, valueWords: 1);
+    static readonly int WinchAnchorOffset =
+        State.AddDictionary(nameof(MapNetworkManager.PlayerRefToPortableWinchAnchorNetworkObject), new(76, 31), keyWords: 1, valueWords: 1);
 
     [HarmonyPatch(typeof(NetworkBehaviourUtils), nameof(NetworkBehaviourUtils.GetWordCount))]
     [HarmonyPostfix]

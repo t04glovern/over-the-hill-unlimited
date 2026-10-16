@@ -13,9 +13,12 @@ namespace OverTheHillUnlimited.Patches;
 /// </summary>
 public class ModdedLobbyPatches
 {
-    // Derived from the expanded layout, so mod versions whose layouts differ are kept apart too
+    // Bump when the appended state changes meaning without changing size, such as how changes are signalled
+    const int Protocol = 1;
+
+    // Built from the protocol and the expanded layout, so mod versions that can't play together are kept apart too
     static readonly string AppVersionSuffix =
-        $"-unlimited.{ExpandedState.Capacity}" +
+        $"-unlimited.p{Protocol}.{ExpandedState.Capacity}" +
         $".{SessionPlayersCapacityPatches.State.WordCount}" +
         $".{MapNetworkCapacityPatches.State.WordCount}" +
         $".{CampCapacityPatches.State.WordCount}";

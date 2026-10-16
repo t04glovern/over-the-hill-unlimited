@@ -12,11 +12,11 @@ namespace OverTheHillUnlimited.Patches;
 public class ServerBrowserTogglePatches
 {
     const string Label = "Unlimited mod servers";
+    const string UnavailableLabel = "Unlimited mod (needs update)";
 
-    // After a click the lobby reconnects in the background; clicks during that overlapped reconnects and the list
-    // could end up showing the other pool. The checkbox is disabled until the lobby is back, within these bounds.
+    // A click reconnects the lobby in the background. The checkbox stays disabled at least this long, so a second click
+    // can't land before the old connection has dropped.
     const float MinReconnectSeconds = 1f;
-    const float MaxReconnectSeconds = 10f;
 
     static ContextUIButtonSelectorWithTextAndIcon _toggle;
     static bool? _shownChecked;
@@ -26,21 +26,28 @@ public class ServerBrowserTogglePatches
     /// <summary>The checkbox in the open server browser, if any (for the self-test).</summary>
     internal static ContextUIButtonSelectorWithTextAndIcon Toggle => _toggle;
 
-    /// <summary>Whether the checkbox is waiting for the lobby to reconnect (for the self-test).</summary>
-    internal static bool IsReconnecting => Reconnecting;
+    /// <summary>Whether the checkbox is waiting for the lobby to connect or reconnect (for the self-test).</summary>
+    internal static bool IsWaitingForLobby => WaitingForLobby;
 
-    static bool Reconnecting
+    static bool WaitingForLobby
     {
         get
         {
-            float elapsed = Time.unscaledTime - _lastClickTime;
-            if (elapsed >= MaxReconnectSeconds)
-                return false;
-            if (elapsed < MinReconnectSeconds)
+            if (Time.unscaledTime - _lastClickTime < MinReconnectSeconds)
                 return true;
             var runner = OverlandNetworkRunner.Instance;
-            return runner != null && !runner.IsConnectedToLobby;
+            return runner == null || !runner.IsConnectedToLobby;
         }
+    }
+
+    // Switching reconnects the lobby, so only while it's connected and not already reconnecting. That covers the first
+    // connection when the browser opens, and region changes, during which the game disables its region dropdown.
+    static bool CanClick(ContextUIServerList serverList)
+    {
+        if (!UnlimitedMode.CanChange || WaitingForLobby)
+            return false;
+        var dropdown = serverList.RegionSelectionDropdown;
+        return dropdown == null || dropdown.interactable;
     }
 
     [HarmonyPatch(typeof(ContextUIServerList), nameof(ContextUIServerList.Start))]
@@ -69,19 +76,20 @@ public class ServerBrowserTogglePatches
         LinkNavigation(template.buttonSelector, _toggle.buttonSelector, horizontal: Mathf.Abs(step.x) > Mathf.Abs(step.y));
         _shownChecked = null;
         _shownInteractable = null;
-        Refresh();
+        Refresh(__instance);
     }
 
     // Keeps the label, tick and enabled state right every frame, in case the game's localisation rewrites the label
     [HarmonyPatch(typeof(ContextUIServerList), nameof(ContextUIServerList.LateUpdate))]
     [HarmonyPostfix]
-    static void Refresh()
+    static void Refresh(ContextUIServerList __instance)
     {
         if (_toggle == null)
             return;
 
-        if (_toggle.label != null && _toggle.label.text != Label)
-            _toggle.label.text = Label;
+        string label = UnlimitedMode.Available ? Label : UnavailableLabel;
+        if (_toggle.label != null && _toggle.label.text != label)
+            _toggle.label.text = label;
 
         bool enabled = UnlimitedMode.Enabled;
         if (_shownChecked != enabled)
@@ -90,7 +98,7 @@ public class ServerBrowserTogglePatches
             _shownChecked = enabled;
         }
 
-        bool interactable = !Reconnecting;
+        bool interactable = CanClick(__instance);
         if (_shownInteractable != interactable)
         {
             _toggle.buttonSelector.interactable = interactable;
@@ -100,19 +108,36 @@ public class ServerBrowserTogglePatches
 
     static void OnClicked(ContextUIServerList serverList)
     {
-        if (Reconnecting || !UnlimitedMode.TrySetEnabled(!UnlimitedMode.Enabled))
+        bool enabled = !UnlimitedMode.Enabled;
+        if (!CanClick(serverList) || !UnlimitedMode.TrySetEnabled(enabled))
             return;
 
         _lastClickTime = Time.unscaledTime;
-        Refresh();
+        try
+        {
+            Reconnect(serverList);
+        }
+        catch (System.Exception e)
+        {
+            // Still on the old connection, so keep the mode that matches it
+            UnlimitedMode.TrySetEnabled(!enabled);
+            Plugin.Logger.LogError($"Couldn't reconnect the server browser, so Unlimited mode stays {(enabled ? "off" : "on")}.\n{e}");
+        }
         CreateServerMenuPatch.ApplyToOpenMenu();
+        Refresh(serverList);
+    }
 
-        // Reconnect to the lobby the way changing region does, so the new AppVersion takes effect
+    // Reconnect the lobby the way picking a region does, so the new AppVersion takes effect. ServerRegionOnChanged
+    // looks the dropdown's index up in AvailableServerRegions, so only use it when the index is in range.
+    static void Reconnect(ContextUIServerList serverList)
+    {
+        var runner = OverlandNetworkRunner.Instance;
         var dropdown = serverList.RegionSelectionDropdown;
-        if (dropdown != null)
+        var regions = runner.AvailableServerRegions;
+        if (dropdown != null && regions != null && dropdown.value >= 0 && dropdown.value < regions.Count)
             serverList.ServerRegionOnChanged(dropdown.value);
-        else if (OverlandNetworkRunner.Instance != null)
-            OverlandNetworkRunner.Instance.ChangeLobbyRegion(OverlandNetworkRunner.Instance.ConnectedRegion);
+        else
+            runner.ChangeLobbyRegion(runner.ConnectedRegion);
     }
 
     // Offset from the game's first filter to its second; one filter height downwards if they aren't siblings

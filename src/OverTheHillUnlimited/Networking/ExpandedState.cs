@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Fusion;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
+using BindingFlags = Il2CppSystem.Reflection.BindingFlags;
 
 namespace OverTheHillUnlimited.Networking;
 
@@ -17,11 +19,12 @@ internal sealed class ExpandedState
     // Fixed rather than configurable: all peers must agree on the state layout
     public const int Capacity = 16;
 
-    // NetworkDictionary capacities must be prime (vanilla [Capacity(4)] is woven as 7)
+    // Fusion's weaver rounds dictionary capacities up to a prime (vanilla [Capacity(4)] is woven as 7), so this does too
     public const int DictionaryCapacity = 17;
 
-    readonly record struct Collection(WovenRange Vanilla, int Offset, int Words);
+    readonly record struct Collection(string Property, WovenRange Vanilla, int Offset, int Words);
 
+    readonly Il2CppSystem.Type _type;
     readonly string _name;
     readonly int _vanillaWordCount;
     readonly List<Collection> _collections = new();
@@ -33,28 +36,78 @@ internal sealed class ExpandedState
     /// <summary>The behaviour's expanded state size: vanilla words plus appended words.</summary>
     public int WordCount => _vanillaWordCount + ExtraWordCount;
 
-    /// <param name="vanillaWordCount">From the type's [NetworkBehaviourWeaved(n)]; a mismatch at runtime means a game update changed the layout.</param>
-    public ExpandedState(string name, int vanillaWordCount)
+    ExpandedState(Il2CppSystem.Type type, string name, int vanillaWordCount)
     {
+        _type = type;
         _name = name;
         _vanillaWordCount = vanillaWordCount;
     }
 
-    /// <summary>Reserves a Capacity-slot copy of the array property at <paramref name="vanilla"/>; returns its offset.</summary>
-    public int AddArray(WovenRange vanilla, int elementWords) =>
-        Add(vanilla, Capacity * elementWords);
+    /// <param name="vanillaWordCount">From the type's [NetworkBehaviourWeaved(n)]; MatchesGame checks it.</param>
+    public static ExpandedState For<T>(int vanillaWordCount) where T : NetworkBehaviour =>
+        new(Il2CppType.Of<T>(), typeof(T).Name, vanillaWordCount);
 
-    /// <summary>Reserves a DictionaryCapacity-slot copy of the dictionary property at <paramref name="vanilla"/>; returns its offset.</summary>
+    /// <summary>Reserves a Capacity-slot copy of an array property woven at <paramref name="vanilla"/>; returns its offset.</summary>
+    public int AddArray(string property, WovenRange vanilla, int elementWords) =>
+        Add(property, vanilla, Capacity * elementWords);
+
+    /// <summary>Reserves a DictionaryCapacity-slot copy of a dictionary property woven at <paramref name="vanilla"/>; returns its offset.</summary>
     // NetworkDictionary layout: 3 meta words, then per slot one bucket word and an entry of next + key + value
-    public int AddDictionary(WovenRange vanilla, int keyWords, int valueWords) =>
-        Add(vanilla, 3 + DictionaryCapacity * (2 + keyWords + valueWords));
+    public int AddDictionary(string property, WovenRange vanilla, int keyWords, int valueWords) =>
+        Add(property, vanilla, 3 + DictionaryCapacity * (2 + keyWords + valueWords));
 
-    int Add(WovenRange vanilla, int words)
+    int Add(string property, WovenRange vanilla, int words)
     {
         int offset = ExtraWordCount;
-        _collections.Add(new Collection(vanilla, offset, words));
+        _collections.Add(new Collection(property, vanilla, offset, words));
         ExtraWordCount += words;
         return offset;
+    }
+
+    /// <summary>
+    /// Whether the game's woven layout is still the one the offsets here were read from. It reads the same
+    /// [NetworkBehaviourWeaved] and [NetworkedWeaved] attributes Fusion builds the state from, so a game update that
+    /// adds, moves or resizes a networked property fails this check, instead of the mod corrupting live state.
+    /// </summary>
+    public bool MatchesGame(out string problem)
+    {
+        int? words = WovenWordCount(_type);
+        if (words != _vanillaWordCount)
+        {
+            problem = $"{_name} has {words?.ToString() ?? "no"} state words, expected {_vanillaWordCount}";
+            return false;
+        }
+        foreach (var collection in _collections)
+        {
+            var range = WovenRangeOf(_type, collection.Property);
+            if (range != collection.Vanilla)
+            {
+                problem = $"{_name}.{collection.Property} is woven at {range?.ToString() ?? "no range"}, expected {collection.Vanilla}";
+                return false;
+            }
+        }
+        problem = null;
+        return true;
+    }
+
+    static int? WovenWordCount(Il2CppSystem.Type type)
+    {
+        foreach (var attribute in type.GetCustomAttributes(Il2CppType.Of<NetworkBehaviourWeavedAttribute>(), false))
+            return attribute.Cast<NetworkBehaviourWeavedAttribute>().WordCount;
+        return null;
+    }
+
+    static WovenRange? WovenRangeOf(Il2CppSystem.Type type, string property)
+    {
+        var info = type.GetProperty(property, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (info == null)
+            return null;
+        foreach (var attribute in info.GetCustomAttributes(Il2CppType.Of<NetworkedWeavedAttribute>(), false))
+        {
+            var woven = attribute.Cast<NetworkedWeavedAttribute>();
+            return new WovenRange(woven.WordOffset, woven.WordCount);
+        }
+        return null;
     }
 
     /// <summary>Call from a NetworkBehaviourUtils.GetWordCount postfix.</summary>
@@ -63,11 +116,12 @@ internal sealed class ExpandedState
         if (!UnlimitedMode.Enabled || behaviour == null || behaviour.TryCast<T>() == null)
             return;
 
+        // MatchesGame already checked this against the woven attribute; this guards against anything that sizes the
+        // block differently at runtime, such as a subclass
         if (wordCount != _vanillaWordCount)
         {
             if (!_loggedMismatch)
-                Plugin.Logger.LogError($"{_name} has {wordCount} state words, expected {_vanillaWordCount}. " +
-                                       "The game has probably been updated, so it stays at 4 player slots.");
+                Plugin.Logger.LogError($"{_name} has {wordCount} state words at runtime, expected {_vanillaWordCount}, so it stays at 4 player slots");
             _loggedMismatch = true;
             return;
         }

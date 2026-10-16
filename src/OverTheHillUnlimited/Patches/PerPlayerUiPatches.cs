@@ -8,10 +8,11 @@ namespace OverTheHillUnlimited.Patches;
 /// <summary>
 /// UIs that keep one pre-built element per vanilla player slot and index them by the player's slot or position in a
 /// loop over the session's players, so with 5+ players they read past the end. Each list is padded to
-/// ExpandedState.Capacity with clones of its last element, in a prefix on the methods that index it first, so players 5
-/// and up get elements of their own. The game positions these elements itself (most track a car or anchor in the world,
-/// and hidden rows take no space in a layout group), so clones need no layout. Clones start hidden; the game shows the
-/// ones it uses, the same way it does for the vanilla elements.
+/// ExpandedState.Capacity with clones of its last element, in prefixes on the methods that index it, so players 5 and up
+/// get elements of their own. The game positions these elements itself (most track a car or anchor in the world, and
+/// hidden rows take no space in a layout group), so clones need no layout. Clones start hidden; the game shows the ones
+/// it uses, the same way it does for the vanilla elements. Instantiate doesn't copy event handlers the game added in
+/// code, so where the game wires elements up before the padding runs (the pause menu), the patch wires the clones too.
 /// </summary>
 public class PerPlayerUiPatches
 {
@@ -60,21 +61,45 @@ public class PerPlayerUiPatches
         PadSelectTool(__instance);
     }
 
-    // Player rows in the pause menu, indexed by slot
+    // Player rows in the pause menu, indexed by slot. StatePauseMenu.Open gives each row its click handler,
+    // OpenPlayerMenu(row, slot) for the player options (kick, mute, volume), before it calls SetupMenu, so the rows
+    // added here need theirs added too. The menu's UI is spawned afresh each time it opens, so this runs once per row.
     [HarmonyPatch(typeof(StatePauseMenu), nameof(StatePauseMenu.SetupMenu))]
     [HarmonyPrefix]
     static void PadPauseMenuRows(StatePauseMenu __instance)
     {
-        Pad(__instance.contextUIPauseMenu?.PlayerInfos);
+        var rows = __instance.contextUIPauseMenu?.PlayerInfos;
+        int vanillaCount = rows?.Count ?? 0;
+        if (!Pad(rows))
+            return;
+        for (int i = vanillaCount; i < rows.Count; i++)
+        {
+            int slot = i;
+            rows[i].ButtonSelector.add_OnPointerClickOrSubmit(
+                (System.Action<UIButtonSelector>)(button => __instance.OpenPlayerMenu(button, slot)));
+        }
     }
 
     // Player markers and pins on the map, indexed by slot
     [HarmonyPatch(typeof(MapView), nameof(MapView.OnEnable))]
     [HarmonyPrefix]
-    static void PadMapMarkers(MapView __instance)
+    static void PadMapOnEnable(MapView __instance)
     {
-        Pad(__instance.playerIndicators);
-        Pad(__instance.pinpointIndicators);
+        PadMap(__instance);
+    }
+
+    [HarmonyPatch(typeof(MapView), nameof(MapView.SetupPlayerNames))]
+    [HarmonyPrefix]
+    static void PadMapOnSetupNames(MapView __instance)
+    {
+        PadMap(__instance);
+    }
+
+    [HarmonyPatch(typeof(MapView), nameof(MapView.UpdatePlayersPinpoints))]
+    [HarmonyPrefix]
+    static void PadMapOnUpdatePins(MapView __instance)
+    {
+        PadMap(__instance);
     }
 
     // The map's DelayedEnable coroutine builds pinpointIndicatorsRectTransforms, parallel to pinpointIndicators, with a
@@ -130,18 +155,26 @@ public class PerPlayerUiPatches
         Pad(ui.AvailableToolsPanels);
     }
 
-    static void Pad<T>(Il2CppSystem.Collections.Generic.List<T> list) where T : Component
+    static void PadMap(MapView map)
+    {
+        Pad(map.playerIndicators);
+        Pad(map.pinpointIndicators);
+    }
+
+    // Returns whether it added any elements
+    static bool Pad<T>(Il2CppSystem.Collections.Generic.List<T> list) where T : Component
     {
         if (!UnlimitedMode.Enabled || list == null || list.Count == 0 || list.Count >= ExpandedState.Capacity)
-            return;
+            return false;
         var template = list[list.Count - 1];
         if ((Object)template == null)
-            return;
+            return false;
 
         int vanillaCount = list.Count;
         while (list.Count < ExpandedState.Capacity)
             list.Add(Clone(template, list.Count));
         Plugin.Logger.LogInfo($"Padded {typeof(T).Name} elements from {vanillaCount} to {list.Count}");
+        return true;
     }
 
     static void PadWinchAnchorMarkers(HUDManager hud)

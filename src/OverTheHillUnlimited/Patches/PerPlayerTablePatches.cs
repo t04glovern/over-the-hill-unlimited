@@ -13,7 +13,7 @@ public class PerPlayerTablePatches
     // Distance between rows of extra lobby spawn points, in front of the vanilla row
     const float SpawnRowSpacing = 8f;
 
-    // MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount is indexed by ActivePlayers.Count()
+    // MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount is indexed by ActivePlayers.Count() - 1
     [HarmonyPatch(typeof(MeteoriteSpawnController), nameof(MeteoriteSpawnController.UpdateSpawnableMeteoritesConfig))]
     [HarmonyPrefix]
     static void PadMeteoriteSetups(MeteoriteSpawnController __instance)
@@ -21,11 +21,11 @@ public class PerPlayerTablePatches
         if (!UnlimitedMode.Enabled)
             return;
         var setups = __instance.meteoriteSpawnConfig?.SpawnableMeteoritesByPlayersCount;
-        if (setups == null || setups.Count == 0 || setups.Count > ExpandedState.Capacity)
+        if (setups == null || setups.Count == 0 || setups.Count >= ExpandedState.Capacity)
             return;
 
         int vanillaCount = setups.Count;
-        while (setups.Count <= ExpandedState.Capacity)
+        while (setups.Count < ExpandedState.Capacity)
             setups.Add(setups[vanillaCount - 1]);
         Plugin.Logger.LogInfo($"Meteorite setups padded from {vanillaCount} to {setups.Count} player counts");
     }
@@ -41,7 +41,8 @@ public class PerPlayerTablePatches
         if (spawnPoints == null || spawnPoints.Count == 0 || spawnPoints.Count >= ExpandedState.Capacity)
             return;
 
-        // Clone the vanilla spawn points into extra rows in front of them
+        // Clone the vanilla spawn points into extra rows in front of them. SpawnPoint.Awake has already destroyed each
+        // one's placeholder car preview, so the clones don't get one.
         int vanillaCount = spawnPoints.Count;
         for (int slot = vanillaCount; slot < ExpandedState.Capacity; slot++)
         {
@@ -52,9 +53,7 @@ public class PerPlayerTablePatches
 
             var clone = Object.Instantiate(source.gameObject, position, sourceTransform.rotation, sourceTransform.parent);
             clone.name = $"{source.gameObject.name} (slot {slot + 1})";
-            var spawnPoint = clone.GetComponent<SpawnPoint>();
-            spawnPoint.mockCarPreview?.SetActive(false);
-            spawnPoints.Add(spawnPoint);
+            spawnPoints.Add(clone.GetComponent<SpawnPoint>());
         }
         Plugin.Logger.LogInfo($"Lobby spawn points padded from {vanillaCount} to {spawnPoints.Count}");
     }
