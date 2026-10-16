@@ -310,7 +310,8 @@ Launch the game with `-otu-selftest` and it tests itself:
    `-otu-selftest-players <n>`).
 4. In the lobby, it checks that every car can be seen from the lobby camera, not out of view or hidden behind another
    car. Then everyone spawns at the area's starting cabin the way players do (the host through the map's spawn
-   request), and it checks that no two cars land on top of each other.
+   request), and it checks that the cabin has a spawn point for every player, a car's length apart. Where the cars
+   end up after landing depends on physics, so that's only logged.
 5. It exercises everything else that indexes per-player data: the player registry, name labels, busy states, map
    pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD, and the map,
    pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks that their
@@ -318,7 +319,7 @@ Launch the game with `-otu-selftest` and it tests itself:
 6. It has 6 cars winch one car, a meteorite and the area's recovery vehicle, and checks that every winch is tracked,
    extraction starts, and every rope is released. It lays out a tent per player around a campfire and checks none
    overlap, fills voice chat with 15 other participants, and finally sends everyone through a portal and checks every
-   player arrives with a car.
+   player arrives with a car, on spawn points a car's length apart.
 7. It removes the bots and quits to the main menu.
 8. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
    Then it clicks the checkbox through its real click handler, off and back on, and checks that the lobby reconnects

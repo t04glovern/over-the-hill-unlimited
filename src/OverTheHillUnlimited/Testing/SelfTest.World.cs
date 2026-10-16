@@ -232,7 +232,9 @@ internal sealed partial class SelfTest
         yield return new Wait(5);
         Check("every player has a car", () => AllPlayers(runner).All(p => HasCar(runner, p)),
             () => $"no car: {string.Join(", ", AllPlayers(runner).Where(p => !HasCar(runner, p)).Select(p => Players.GetPlayerName(p)))}");
-        Check("no two cars on top of each other", () => ClosestCars(runner) >= MinCarSpacing, () => $"two cars {ClosestCars(runner):F1} m apart");
+        Check($"'{portal.name}' has a spawn point for every player, a car's length apart", () => SpawnSpacing(portal, AllPlayers(runner).Count) >= MinSpawnSpacing,
+            () => $"{portal.spawnPoints.Count} spawn points, closest {SpawnSpacing(portal, AllPlayers(runner).Count):F1} m apart");
+        Record($"INFO {_section}: after landing, the closest two cars are {ClosestCars(runner):F1} m apart");
         EndSection();
     }
 

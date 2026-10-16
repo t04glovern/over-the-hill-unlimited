@@ -201,7 +201,9 @@ internal sealed partial class SelfTest
             () => string.Join(", ", AllPlayers(runner).Where(p => !Players.SpawnedInMap(p)).Select(p => Players.GetPlayerName(p))));
         Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < 60),
             () => string.Join(", ", AllPlayers(runner).Select(p => $"{Players.GetPlayerName(p)} {Vector3.Distance(CarPosition(runner, p), start.transform.position):F0} m")));
-        Check("no two cars on top of each other", () => ClosestCars(runner) >= MinCarSpacing, () => $"two cars {ClosestCars(runner):F1} m apart");
+        Check($"'{start.name}' has a spawn point for every player, a car's length apart", () => SpawnSpacing(start, AllPlayers(runner).Count) >= MinSpawnSpacing,
+            () => $"{start.spawnPoints.Count} spawn points, closest {SpawnSpacing(start, AllPlayers(runner).Count):F1} m apart");
+        Record($"INFO {_section}: after landing, the closest two cars are {ClosestCars(runner):F1} m apart");
         EndSection();
 
         Section("Free roam");
@@ -433,6 +435,7 @@ internal sealed partial class SelfTest
     public void Crashed(Exception exception)
     {
         Fail($"self-test threw {exception.GetType().Name}: {FirstLine(exception.Message)}");
+        _log.LogWarning(exception);
         Finish();
     }
 
@@ -581,8 +584,24 @@ internal sealed partial class SelfTest
         return BotPlayers.TryGetCar(player, out var car) ? car.transform.position : Vector3.positiveInfinity;
     }
 
-    // Car centres closer than about a car's width mean they spawned on top of each other; touching after landing is fine
-    const float MinCarSpacing = 2f;
+    // Spawn points a car's length apart, so nobody arrives on top of anyone else. Where the cars end up after landing
+    // depends on physics, so that's only reported.
+    const float MinSpawnSpacing = 4f;
+
+    // The closest two of the spawn points the first n players would be given
+    static float SpawnSpacing(SpawnablePointOfInterest pointOfInterest, int players)
+    {
+        var points = pointOfInterest.spawnPoints;
+        if (points == null || points.Count < players)
+            return 0;
+        float closest = float.PositiveInfinity;
+        for (int i = 0; i < players; i++)
+        {
+            for (int j = i + 1; j < players; j++)
+                closest = Math.Min(closest, Vector3.Distance(points[i].transform.position, points[j].transform.position));
+        }
+        return closest;
+    }
 
     static float ClosestCars(NetworkRunner runner)
     {

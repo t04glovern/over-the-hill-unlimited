@@ -126,8 +126,8 @@ public class CabinSpawnPointPatches
             {
                 var source = spawnPoints[i].transform;
                 var position = source.position - source.forward * (FallbackRowSpacing * row);
-                if (TryFindGround(source.position, out var sourceGround, out _) && TryFindGround(position, out var ground, out _))
-                    position = ground + Vector3.up * (source.position.y - sourceGround.y);
+                if (TryFindSurface(source.position, out var sourceSurface) && TryFindSurface(position, out var surface))
+                    position = surface + Vector3.up * (source.position.y - sourceSurface.y);
                 if (IsNear(position, taken))
                     continue;
                 taken.Add(position);
@@ -156,6 +156,26 @@ public class CabinSpawnPointPatches
         }
         ground = normal = default;
         return false;
+    }
+
+    // What a car would stand on: the terrain, or where there's none below (such as a portal's platform), the highest
+    // level static surface, ignoring anything with a rigidbody such as other cars
+    static bool TryFindSurface(Vector3 around, out Vector3 surface)
+    {
+        if (TryFindGround(around, out surface, out _))
+            return true;
+        var hits = Physics.RaycastAll(around + Vector3.up * 20, Vector3.down, 60, Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore);
+        float nearest = float.MaxValue;
+        foreach (var hit in hits)
+        {
+            if (hit.collider != null && hit.collider.attachedRigidbody == null && hit.normal.y >= MinGroundUp && hit.distance < nearest)
+            {
+                nearest = hit.distance;
+                surface = hit.point;
+            }
+        }
+        return nearest < float.MaxValue;
     }
 
     static bool IsNear(Vector3 position, List<Vector3> taken)

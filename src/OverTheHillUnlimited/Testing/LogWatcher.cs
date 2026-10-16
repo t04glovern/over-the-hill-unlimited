@@ -16,8 +16,9 @@ internal sealed class LogWatcher : ILogListener
 {
     static readonly Regex UnityExceptionLine = new(@"^[A-Za-z_][\w.`]*Exception: ", RegexOptions.Compiled);
 
-    // Errors the game logs about its own level data, which show up wherever a car arrives and aren't the mod's doing
-    static readonly string[] GameContentErrors = { "is not on a NavMesh" };
+    // Errors the game logs that aren't the mod's doing: level data wherever a car arrives, and each car's track-reset RPC
+    // arriving before the snow and mud tracks system has set itself up in a new session
+    static readonly string[] GameContentErrors = { "is not on a NavMesh", "TraxManager not yet initialized" };
 
     // Exceptions from the game's own races, by their first stack frame: HUDManager's ping icon coroutine reads the
     // network runner without a null check, so it throws if it ticks while quitting to the menu shuts the runner down
