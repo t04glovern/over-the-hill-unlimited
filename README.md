@@ -25,6 +25,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Spawning in the map with 5+ players | Extra spawn points around each cabin, so cars don't land on top of each other; verified by the self-test with 16 |
 | Arriving through a portal with 5+ players | Players past the 4th used to arrive with no car; now everyone gets a spot (self-test with 16) |
 | Winching with 5+ cars (one car, a meteorite, a recovery vehicle) | Room for 16 winches on each (self-test with 6 winches) |
+| Meteorites with 5+ players | Each involved player gets the 4-player share of the pebbles, more meteorites in the map, and a wider reach for counting as involved (self-test with 16) |
 | Tents at camp with 8+ players | The tent circle widens so tents don't overlap (self-test with 16) |
 | Discord voice chat with 5+ players | An emitter for every other player (self-test of the slots; audio needs a real call) |
 | Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
@@ -96,7 +97,13 @@ To uninstall, clear the launch option, then untick the compatibility option to g
 |---|---|---|
 | `General.MaxPlayers` | `8` | Highest option in the Max Players menu in Unlimited mode, 4 to 16. The vanilla 2 to 4 are always offered. |
 | `General.ExpandPlayerSlots` | `true` | Unlimited mode, the same setting as the **Unlimited mod servers** checkbox in the server browser. Off means vanilla behaviour, for playing with people who don't have the mod (4 players max). |
+| `Meteorites.PebbleShareMaxPlayers` | `4` | A meteorite's pebbles are split between the players involved. With more involved than this, each gets the share for this many instead. `16` splits them between everyone, as the game does. |
+| `Meteorites.PlayersPerExtraMeteorite` | `2` | With more than 4 players, one more meteorite in the map for every this many players past 4. `0` keeps the game's 2 or 3. |
+| `Meteorites.ScaleRewardReach` | `true` | With more than 4 players, widen the 10 m distance for counting as involved in pulling a meteorite out (14 m for 8, 20 m for 16). |
 | `Debug.VerboseLogging` | `false` | Log the session size and player list as players join and leave. Useful for testing. |
+
+The meteorite settings are the host's: the host decides the rewards and spawns, so other players' settings don't
+matter. See [Meteorites for more than 4 players](#5-meteorites-for-more-than-4-players).
 
 ## How it works
 
@@ -231,6 +238,28 @@ the end, puts cars on top of each other, or drops players. Each gets room for 16
 - In-game voice chat (through Discord) has emitters for 3 other players. The 4th and later were silent and logged an
   exception for every audio frame. `VoiceChatCapacityPatches` adds emitters before a call starts.
 
+### 5. Meteorites for more than 4 players
+
+The game balances meteorites for up to 4 players, and past that they stop being worth it. `MeteoriteBalancePatches`
+carries the 4-player balance on. The host decides all three, so only the host needs this, and with the default
+[settings](#configuration) nothing changes with 4 players or fewer:
+
+- **Pebbles.** When a meteorite comes out, `Meteorite.CompleteObjectiveForInvolvedPlayers` tells every player through
+  `RPC_CompleteObjectiveForLocalPlayer`: each involved player (every car winched to it, and every car within
+  `prizeAwardMaxDistance`) gets `CeilToInt(PebbleValue / involved players)`, and everyone else 0. With more than 4
+  involved (`PebbleShareMaxPlayers`), each involved player gets the 4-player share instead, so a very huge meteorite
+  (80 pebbles) gives each of them 20, as in a 4-player game, not 10 with 8 players or 5 with 16. The RPCs are held back
+  until the method is done and the number of players involved is known, then sent with that share.
+- **How many.** `MeteoriteSpawnController` keeps 2 or 3 meteorites in the map (`meteoritesToSpawn`, rolled once by the
+  host) whatever the number of players. One more is added for every 2 players past 4 (`PlayersPerExtraMeteorite`:
+  3 or 4 for 6 players, 4 or 5 for 8, 8 or 9 for 16), so there are as many per player as in a 4-player game. There
+  are plenty of spawn points (116 across Canada's 3 areas, 96 across Algeria's 2). Extra ones at the start are already
+  landed like the rest; ones added when players join fall from the sky at the next check. With fewer players, the
+  extra ones aren't replaced.
+- **Reach.** Only cars within `prizeAwardMaxDistance` (10 m, about two car lengths) of the meteorite when it comes out
+  count as involved, unless they're winched to it. That grows with the square root of the number of players past 4
+  (14 m for 8, 20 m for 16; `ScaleRewardReach`), so the area around the meteorite grows with the number of cars.
+
 ### Why everyone needs the mod
 
 PEAK uses Photon PUN, where raising the room size on the host is enough. Here, the appended words change the size of
@@ -317,9 +346,11 @@ Launch the game with `-otu-selftest` and it tests itself:
    pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks that their
    player options open, that the rows grey out like the game's own, and that a gamepad can move down through them.
 6. It has 6 cars winch one car, a meteorite and the area's recovery vehicle, and checks that every winch is tracked,
-   extraction starts, and every rope is released. It lays out a tent per player around a campfire and checks none
-   overlap, fills voice chat with 15 other participants, and finally sends everyone through a portal and checks every
-   player arrives with a car, on spawn points a car's length apart.
+   extraction starts, and every rope is released. For the meteorite, it checks the map has the right number of
+   meteorites for the session, and that when it comes out every winched car is rewarded with the 4-player share and
+   the reach is widened for the number of players (the host's own profile is left out). It lays out a tent per
+   player around a campfire and checks none overlap, fills voice chat with 15 other participants, and finally sends
+   everyone through a portal and checks every player arrives with a car, on spawn points a car's length apart.
 7. It removes the bots and quits to the main menu.
 8. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
    Then it clicks the checkbox through its real click handler, off and back on, and checks that the lobby reconnects
@@ -367,6 +398,7 @@ src/OverTheHillUnlimited/
     CampTentPatches.cs                room around the campfire for every tent
     ItemRecoveryWinchPatches.cs       more than 4 winches on a recovery vehicle
     VoiceChatCapacityPatches.cs       voice chat emitters for every player
+    MeteoriteBalancePatches.cs        pebble shares, meteorite count and reach for more than 4 players
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16

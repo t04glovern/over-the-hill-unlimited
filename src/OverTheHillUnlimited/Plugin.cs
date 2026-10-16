@@ -23,6 +23,9 @@ public class Plugin : BasePlugin
     internal static ConfigEntry<int> ConfigMaxPlayers;
     internal static ConfigEntry<bool> ConfigExpandPlayerSlots;
     internal static ConfigEntry<bool> ConfigVerboseLogging;
+    internal static ConfigEntry<int> ConfigPebbleShareMaxPlayers;
+    internal static ConfigEntry<int> ConfigPlayersPerExtraMeteorite;
+    internal static ConfigEntry<bool> ConfigScaleMeteoriteReach;
 
     private Harmony _harmony;
 
@@ -102,6 +105,9 @@ public class Plugin : BasePlugin
         _harmony.PatchAll(typeof(ItemRecoveryWinchPatches));
         _harmony.PatchAll(typeof(VoiceChatCapacityPatches));
 
+        // Balance meteorites for more than 4 players: the 4-player share of pebbles, more meteorites, a wider reach
+        _harmony.PatchAll(typeof(MeteoriteBalancePatches));
+
         // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));
 
@@ -139,6 +145,34 @@ public class Plugin : BasePlugin
             "VerboseLogging",
             false,
             "Log the session size and the expanded player list as players join and leave. Useful when testing.");
+
+        // The host decides meteorite rewards and spawns, so for these only the host's settings count
+        ConfigPebbleShareMaxPlayers = Config.Bind(
+            "Meteorites",
+            "PebbleShareMaxPlayers",
+            VanillaMaxPlayers,
+            new ConfigDescription(
+                "A meteorite's pebbles are split between the players involved in pulling it out. With more players " +
+                "involved than this, each gets the share they'd get with this many instead. " +
+                $"{ExpandedState.Capacity} splits them between everyone, as the game does. Only the host's setting counts.",
+                new AcceptableValueRange<int>(1, ExpandedState.Capacity)));
+
+        ConfigPlayersPerExtraMeteorite = Config.Bind(
+            "Meteorites",
+            "PlayersPerExtraMeteorite",
+            2,
+            new ConfigDescription(
+                $"The game keeps 2 or 3 meteorites in the map. With more than {VanillaMaxPlayers} players, add one for " +
+                $"every this many players past {VanillaMaxPlayers}. 0 keeps the game's 2 or 3. Only the host's setting counts.",
+                new AcceptableValueRange<int>(0, ExpandedState.Capacity)));
+
+        ConfigScaleMeteoriteReach = Config.Bind(
+            "Meteorites",
+            "ScaleRewardReach",
+            true,
+            $"Only cars within 10 m of a meteorite when it comes out count as involved, unless they're winched to it. " +
+            $"With more than {VanillaMaxPlayers} players, widen that so the area grows with the number of cars " +
+            "(14 m for 8, 20 m for 16). Only the host's setting counts.");
     }
 
     public override bool Unload()

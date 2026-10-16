@@ -41,6 +41,18 @@ internal sealed partial class SelfTest
     IEnumerable<object> TestMeteoriteWinches(NetworkRunner runner)
     {
         Section("Meteorite winched by six cars");
+        var controller = MeteoriteSpawnController.Instance;
+        if (controller != null)
+        {
+            int players = controller.currentNumberOfPlayers;
+            int expected = MeteoriteBalancePatches.MeteoriteCount(MeteoriteBalancePatches.BaseMeteoriteCount, players);
+            Check($"{expected} meteorites to keep in the map for {players} players", () => controller.NumberOfMeteoritesToSpawn == expected,
+                () => $"{controller.NumberOfMeteoritesToSpawn}, from a roll of {MeteoriteBalancePatches.BaseMeteoriteCount}");
+            for (int wait = 0; wait < 30 && controller.spawnedMeteorites.Count < expected; wait++)
+                yield return new Wait(1);
+            Check("they're all spawned", () => controller.spawnedMeteorites.Count >= expected,
+                () => $"{controller.spawnedMeteorites.Count} spawned");
+        }
         var meteorite = Object.FindObjectsOfType<Meteorite>()
             .FirstOrDefault(m => m.Object != null && m.Object.IsValid && m.HasStateAuthority);
         if (meteorite == null)
@@ -48,7 +60,10 @@ internal sealed partial class SelfTest
             Skip("no spawned meteorite in this area");
             yield break;
         }
-        var pullers = AllPlayers(runner).Take(6).Select(player => WinchOf(runner, player)).Where(winch => winch != null).ToList();
+        // Bots only, so the host's own profile earns nothing from the test
+        var pullerPlayers = AllPlayers(runner).Where(player => player.RawEncoded != runner.LocalPlayer.RawEncoded)
+            .Where(player => WinchOf(runner, player) != null).Take(6).ToList();
+        var pullers = pullerPlayers.Select(player => WinchOf(runner, player)).ToList();
         Do("any pull direction counts", () => meteorite.maxPullSpreadAngle = 180);
         Do($"{pullers.Count} cars winch it", () => pullers.ForEach(winch => meteorite.OnWinchAttached(winch, meteorite.Object)));
         Check("room for every car's pull direction", () => meteorite.winchedPlayersPullDirections.Length >= ExpandedState.Capacity,
@@ -61,6 +76,52 @@ internal sealed partial class SelfTest
         });
         Check("it starts coming out", () => meteorite.Status == Meteorite.MeteoriteStatus.ExtractingPulling,
             () => $"status {meteorite.Status}");
+
+        // The game's own award, with the host's own player left out of it
+        MeteoriteBalancePatches.LastAward = null;
+        Do("it comes out and the involved players are rewarded", () =>
+        {
+            MeteoriteBalancePatches.SkipLocalPlayerAward = true;
+            try
+            {
+                meteorite.CompleteObjectiveForInvolvedPlayers();
+            }
+            finally
+            {
+                MeteoriteBalancePatches.SkipLocalPlayerAward = false;
+            }
+        });
+        var award = MeteoriteBalancePatches.LastAward;
+        int pebbles = meteorite.meteoriteConfig.PebbleValue;
+        int sessionPlayers = Players.GetPlayerCount();
+        var prizes = MeteoriteBalancePatches.LastPrizes;
+        Check("every winched car counts as involved", () => award != null && award.Value.Involved >= pullers.Count,
+            () => award == null ? "no award" : $"{award.Value.Involved} involved");
+        Record($"INFO {_section}: {award?.Involved} of {sessionPlayers} players involved, {prizes.Count} told");
+        Check("the game splits them between everyone involved, rounding up", () =>
+                award != null && award.Value.VanillaShare == (int)Math.Ceiling(pebbles / (float)award.Value.Involved),
+            () => award == null ? "no award" : $"{award.Value.VanillaShare} each for {award.Value.Involved}");
+        int maxSharing = Plugin.ConfigPebbleShareMaxPlayers.Value;
+        int expectedShare = award != null && award.Value.Involved > maxSharing
+            ? (int)Math.Ceiling(pebbles / (float)maxSharing)
+            : award?.VanillaShare ?? -1;
+        Check($"each winched car gets the {maxSharing}-player share of its {pebbles} pebbles", () =>
+                award != null && award.Value.Share == expectedShare &&
+                pullerPlayers.All(player => prizes.TryGetValue(player.RawEncoded, out int prize) && prize == expectedShare),
+            () => string.Join(", ", pullerPlayers.Select(player => prizes.TryGetValue(player.RawEncoded, out int prize) ? $"{prize}" : "none")) +
+                  $" (the game's split: {award?.VanillaShare})");
+        Check("players who weren't involved get nothing", () =>
+                award != null && prizes.Values.Count(prize => prize > 0) == award.Value.Involved &&
+                prizes.Values.All(prize => prize == 0 || prize == expectedShare),
+            () => $"{prizes.Values.Count(prize => prize > 0)} rewarded: {string.Join(", ", prizes.Values)}");
+        float expectedReach = Plugin.ConfigScaleMeteoriteReach.Value && sessionPlayers > Plugin.VanillaMaxPlayers
+            ? 10f * MathF.Sqrt(sessionPlayers / (float)Plugin.VanillaMaxPlayers)
+            : 10f;
+        Check($"cars within {expectedReach:F1} m count for {sessionPlayers} players", () =>
+                award != null && Math.Abs(award.Value.Reach - expectedReach) < 0.1f,
+            () => award == null ? "no award" : $"{award.Value.Reach:F1} m");
+        Check("the meteorite's own reach is put back", () => Math.Abs(meteorite.prizeAwardMaxDistance - 10f) < 0.01f,
+            () => $"{meteorite.prizeAwardMaxDistance:F1} m");
         Do("the cars let go", () =>
         {
             pullers.ForEach(winch => winch.WinchRopeState = VehicleWinchSystem.WinchRopeStates.Relaxed);
