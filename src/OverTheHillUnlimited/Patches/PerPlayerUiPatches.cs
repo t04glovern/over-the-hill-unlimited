@@ -6,11 +6,12 @@ using UnityEngine;
 namespace OverTheHillUnlimited.Patches;
 
 /// <summary>
-/// UIs that keep one pre-built element per vanilla player slot and index them by the player's position in a loop over
-/// the session's players, so with 5+ players they read past the end. Each list is padded to ExpandedState.Capacity with
-/// clones of its last element, in a prefix on the methods that index it, so players 5 and up get elements of their own.
-/// The game positions all of these elements itself (most track a car or anchor in the world), so clones need no layout.
-/// Clones start hidden; the game shows the ones it uses, the same way it does for the vanilla elements.
+/// UIs that keep one pre-built element per vanilla player slot and index them by the player's slot or position in a
+/// loop over the session's players, so with 5+ players they read past the end. Each list is padded to
+/// ExpandedState.Capacity with clones of its last element, in a prefix on the methods that index it first, so players 5
+/// and up get elements of their own. The game positions these elements itself (most track a car or anchor in the world,
+/// and hidden rows take no space in a layout group), so clones need no layout. Clones start hidden; the game shows the
+/// ones it uses, the same way it does for the vanilla elements.
 /// </summary>
 public class PerPlayerUiPatches
 {
@@ -57,6 +58,37 @@ public class PerPlayerUiPatches
     static void PadSelectToolOnItemSlot(StateSelectTool __instance)
     {
         PadSelectTool(__instance);
+    }
+
+    // Player rows in the pause menu, indexed by slot
+    [HarmonyPatch(typeof(StatePauseMenu), nameof(StatePauseMenu.SetupMenu))]
+    [HarmonyPrefix]
+    static void PadPauseMenuRows(StatePauseMenu __instance)
+    {
+        Pad(__instance.contextUIPauseMenu?.PlayerInfos);
+    }
+
+    // Player markers and pins on the map, indexed by slot
+    [HarmonyPatch(typeof(MapView), nameof(MapView.OnEnable))]
+    [HarmonyPrefix]
+    static void PadMapMarkers(MapView __instance)
+    {
+        Pad(__instance.playerIndicators);
+        Pad(__instance.pinpointIndicators);
+    }
+
+    // The map's DelayedEnable coroutine builds pinpointIndicatorsRectTransforms, parallel to pinpointIndicators, with a
+    // hard-coded loop over the first 4 pins, so padded pins get no rect. Add theirs before the map indexes it by slot.
+    [HarmonyPatch(typeof(MapView), nameof(MapView.UpdatePlayerPinpoint))]
+    [HarmonyPrefix]
+    static void AddPinRects(MapView __instance)
+    {
+        var pins = __instance.pinpointIndicators;
+        var rects = __instance.pinpointIndicatorsRectTransforms;
+        if (!UnlimitedMode.Enabled || pins == null || rects == null || rects.Count >= pins.Count)
+            return;
+        for (int i = rects.Count; i < pins.Count; i++)
+            rects.Add(pins[i].GetComponent<RectTransform>());
     }
 
     // Car health markers over other players' cars on the HUD

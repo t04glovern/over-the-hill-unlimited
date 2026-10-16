@@ -40,10 +40,8 @@ public class SessionPlayersCapacityPatches
     [HarmonyPostfix]
     static void OrderedPlayerRefsPostfix(OverlandSessionPlayers __instance, ref NetworkArray<PlayerRef> __result)
     {
-        if (!State.IsExpanded(__instance))
-            return;
-        int length = PlayerListUiPatches.ClampToVanilla ? Plugin.VanillaMaxPlayers : ExpandedState.Capacity;
-        __result = State.Array(__instance, OrderedPlayerRefsOffset, length, __result);
+        if (State.IsExpanded(__instance))
+            __result = State.Array(__instance, OrderedPlayerRefsOffset, ExpandedState.Capacity, __result);
     }
 
     [HarmonyPatch(typeof(OverlandSessionPlayers), nameof(OverlandSessionPlayers.PlayerColors), MethodType.Getter)]

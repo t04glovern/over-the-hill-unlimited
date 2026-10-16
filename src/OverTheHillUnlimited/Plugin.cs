@@ -5,6 +5,7 @@ using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using OverTheHillUnlimited.Networking;
 using OverTheHillUnlimited.Patches;
+using OverTheHillUnlimited.Testing;
 
 namespace OverTheHillUnlimited;
 
@@ -49,6 +50,15 @@ public class Plugin : BasePlugin
         if (ConfigVerboseLogging.Value)
             _harmony.PatchAll(typeof(SessionDiagnosticsPatches));
 
+        // Only with the -otu-selftest launch option: bot players and the scripted self-test
+        if (SelfTest.Requested)
+        {
+            _harmony.PatchAll(typeof(BotActivePlayersPatch));
+            _harmony.PatchAll(typeof(BotPlayerObjectPatch));
+            AddComponent<SelfTestRunner>();
+            Logger.LogWarning("Self-test mode: this run will host a session with bot players, then quit");
+        }
+
         Logger.LogInfo($"{Name} {Version} loaded (Unlimited mode {(UnlimitedMode.Enabled ? "on" : "off")}, " +
                        $"MaxPlayers={ConfigMaxPlayers.Value}, {ExpandedState.Capacity} player slots)");
     }
@@ -70,11 +80,8 @@ public class Plugin : BasePlugin
         // Pad game data with one entry per player (meteorite setups, lobby spawn points)
         _harmony.PatchAll(typeof(PerPlayerTablePatches));
 
-        // Pad UIs with one element per player (lobby labels, repair/tool menus, car health and winch anchor markers)
+        // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));
-
-        // Show only the first 4 players in the UIs that aren't padded yet (pause menu, map)
-        _harmony.PatchAll(typeof(PlayerListUiPatches));
 
         // Keep unmodded players out: they can't use the expanded objects
         _harmony.PatchAll(typeof(ModdedLobbyPatches));

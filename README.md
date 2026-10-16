@@ -20,8 +20,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Map pins, portable winch anchors and camp tents hold 16 players | Pins verified solo; anchors and tents untested |
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
 | Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
-| Pause menu and map | Working, but they only show the first 4 players |
-| Lobby name labels, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players from 0.2.1; untested with 5+ |
+| Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players |
 | Colours for players 5+ | The game's default colour (its colour lookup only knows 4) |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
@@ -157,19 +156,24 @@ vanilla versions live.
 
 ### 3. UI built for 4 players
 
-Several UIs keep one pre-built element per player, laid out in the menus or HUD, and index it by the player's position
-in a loop over the players. With 5 players they read past the end with `ArgumentOutOfRangeException`. There are two
-fixes:
+Several UIs keep one pre-built element per player, laid out in the menus or HUD, and index it by the player's slot or
+position in a loop over the players. With 5 players they read past the end with `ArgumentOutOfRangeException`.
+`PerPlayerUiPatches` pads each list to 16 with hidden clones of its last element. The padding runs in a prefix on the
+method that indexes the list first, and the game shows the clones it uses, as it does its own. This covers:
 
-- **Padding** (`PerPlayerUiPatches`): a prefix on each method that indexes the list pads it to 16 with hidden clones of
-  its last element, and the game shows the ones it uses, as it does its own. This applies to the lobby name labels
-  (`StateLobbyMenu.UpdateCarsStatus`), the car repair buttons (`StateCarRepair`), the tool selection menu's car health
-  buttons and tool panels (`StateSelectTool`), the HUD's car health markers (`CarHealthUI`), and its portable winch
-  anchor markers (`HUDManager.portableWinchAnchorIndicators`, an array). The game positions all of these itself, mostly
-  over a car or anchor in the world, so clones need no layout. Players 5 and up get their own.
-- **Clamping** (`PlayerListUiPatches`): the pause menu and the map make the player list report only its first 4 slots
-  while their methods run. They work as before, but players 5 and up don't appear in them yet. The map keeps parallel
-  lists of player markers and pin positions, which makes padding it riskier.
+- the lobby name labels (`StateLobbyMenu.UpdateCarsStatus`)
+- the pause menu's player rows (`StatePauseMenu.SetupMenu`)
+- the map's player markers and pins (`MapView.OnEnable`)
+- the car repair buttons (`StateCarRepair`)
+- the tool selection menu's car health buttons and tool panels (`StateSelectTool`)
+- the HUD's car health markers (`CarHealthUI`) and portable winch anchor markers (`HUDManager.portableWinchAnchorIndicators`,
+  an array)
+
+The game positions these elements itself: most track a car or anchor in the world, and hidden rows take no space in a
+layout group. So clones need no layout, and players 5 and up get their own.
+
+The map also keeps `pinpointIndicatorsRectTransforms`, parallel to its pins, and fills it with a hard-coded loop over
+the first 4 pins. A prefix on `MapView.UpdatePlayerPinpoint` adds the rects for the padded pins.
 
 The compass builds its icons as it needs them, so it handles any number of players. Player colours and pin flares come
 from a switch on the player's slot with a default case, so players 5 and up get the default colour rather than an
@@ -242,6 +246,33 @@ References come straight from the game's `BepInEx/core` and `BepInEx/interop` fo
 locked. If the game isn't in the default Steam location, copy `Config.Build.user.props.template` to
 `Config.Build.user.props` and set `GameDir`.
 
+### Testing without other players
+
+Launch the game with `-otu-selftest` and it tests itself:
+1. It waits for the main menu and hosts a session in Unlimited mode.
+2. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default).
+3. It exercises everything that indexes per-player data: the player registry, lobby spawn points and name labels, busy
+   states, map pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD,
+   and the map, pause, car repair and tool selection menus.
+4. It removes the bots and quits.
+
+Each section also fails if the game or BepInEx logged an error during it. Results go to `BepInEx/LogOutput.log` (source
+`OTU Self-test`) and to `BepInEx/OverTheHillUnlimited-selftest.txt`. Add `-otu-selftest-stay` to keep the game open
+afterwards, or `-otu-selftest-area <name>` to host somewhere other than the first area.
+
+To run it from a shell instead of Steam (Steam must still be running):
+
+```powershell
+$env:SteamAppId = '2929250'; $env:SteamGameId = '2929250'
+& 'C:\Program Files (x86)\Steam\steamapps\common\over the hill\over the hill.exe' -otu-selftest
+```
+
+Bots have no network connection, so the self-test can't prove that the appended state replicates to clients. Test that
+with a second machine. Fusion only tracks connected players, so the self-test answers `ActivePlayers` and
+`TryGetPlayerObject` for the bots itself (`BotPlayers.cs`). It also closes the lobby the way the game's benchmark mode
+does, which leaves the host not counted as spawned in the map, so the host has no map marker. None of this code runs
+without the launch option.
+
 ### Project layout
 
 ```
@@ -259,8 +290,12 @@ src/OverTheHillUnlimited/
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16
-    PlayerListUiPatches.cs            pause menu and map, clamped to 4
     SessionDiagnosticsPatches.cs      VerboseLogging output
+  Testing/
+    SelfTest.cs                       the -otu-selftest script and its checks
+    SelfTestRunner.cs                 drives the script frame by frame
+    BotPlayers.cs                     fake players for the self-test
+    LogWatcher.cs                     collects game and BepInEx errors per test section
 tools/
   Build-Release.ps1                   build and package a release zip
   Dump-GameCode.ps1                   dump the game's code with Cpp2IL
@@ -288,8 +323,10 @@ For what a method actually does, run `tools/Dump-GameCode.ps1 -Format isil`. It 
 ISIL to `.dump/isil/IsilDump/` (about 700 MB), with calls resolved to names. That shows constants, comparisons, the field
 offsets a method reads (match them to the `Field offset` comments in the stubs) and bounds checks. A list index check
 calls `ThrowHelper.ThrowArgumentOutOfRange_IndexException`. The search for 4-player assumptions scanned it for methods
-that read player data and then index a list or array, or compare against a hard-coded 3, 4 or 5. There were no
-hard-coded comparisons: the cap is all in data sized for 4.
+that read player data and then index a list or array, and for loops with a fixed bound of 4. Almost all of the cap is
+in data sized for 4. The one hard-coded loop in player code is the map's pin rects (see How it works). Look for both
+loop shapes: a counter compared with 4, and a stride compared with an end offset, such as
+`Add r14, r14, 8; Compare r14, 64` for 4 pointers starting at an array's 0x20 data offset.
 
 Logs:
 - The mod's output is in `BepInEx/LogOutput.log`.
@@ -323,9 +360,9 @@ Logs:
 - [x] Keep players without the mod out (a separate Photon AppVersion), since Fusion rejects the expanded objects on
       their side
 - [x] Search the game code for other 4-player assumptions, and pad the UIs that index per-player elements
-- [ ] Retest 5+ players with everyone on 0.2.1: lobby name labels, car repair and tool selection menus, car health and
-      winch anchor markers, compass
-- [ ] Pad the pause menu and map too, so players 5 and up show there
+- [x] Pad the pause menu and map too, so players 5 and up show there
+- [x] A self-test that exercises every per-player path with bot players, without needing other people
+- [ ] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
 - [ ] Colours of their own for players 5 and up
 
 ## Credits
