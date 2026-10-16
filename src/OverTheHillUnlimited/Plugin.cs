@@ -88,8 +88,11 @@ public class Plugin : BasePlugin
         _harmony.PatchAll(typeof(MapNetworkCapacityPatches));
         _harmony.PatchAll(typeof(CampCapacityPatches));
 
-        // Pad game data with one entry per player (meteorite setups, lobby spawn points)
+        // Pad game data with one entry per player (meteorite setups, lobby spawn points), make room for every car where
+        // players spawn in the map, and frame every car in the lobby
         _harmony.PatchAll(typeof(PerPlayerTablePatches));
+        _harmony.PatchAll(typeof(CabinSpawnPointPatches));
+        _harmony.PatchAll(typeof(LobbyCameraPatches));
 
         // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));

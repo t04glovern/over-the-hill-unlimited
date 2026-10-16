@@ -10,8 +10,8 @@ namespace OverTheHillUnlimited.Patches;
 /// </summary>
 public class PerPlayerTablePatches
 {
-    // Distance between rows of extra lobby spawn points, in front of the vanilla row
-    const float SpawnRowSpacing = 8f;
+    // Distance between rows of lobby spawn points: a car length and a gap
+    const float SpawnRowSpacing = 7f;
 
     // MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount is indexed by ActivePlayers.Count() - 1
     [HarmonyPatch(typeof(MeteoriteSpawnController), nameof(MeteoriteSpawnController.UpdateSpawnableMeteoritesConfig))]
@@ -33,23 +33,31 @@ public class PerPlayerTablePatches
     // Lobby.spawnPoints is indexed by the player's slot in OrderedPlayerRefs
     [HarmonyPatch(typeof(Lobby), nameof(Lobby.GetSpawnPoint))]
     [HarmonyPrefix]
-    static void PadLobbySpawnPoints(Lobby __instance)
+    static void PadLobbySpawnPointsOnUse(Lobby __instance)
+    {
+        PadLobbySpawnPoints(__instance);
+    }
+
+    /// <summary>
+    /// Clones the vanilla lobby spawn points into extra rows behind them, away from the lobby camera, which
+    /// LobbyCameraPatches raises to see over the front row. Safe to call more than once.
+    /// </summary>
+    public static void PadLobbySpawnPoints(Lobby lobby)
     {
         if (!UnlimitedMode.Enabled)
             return;
-        var spawnPoints = __instance.spawnPoints;
+        var spawnPoints = lobby.spawnPoints;
         if (spawnPoints == null || spawnPoints.Count == 0 || spawnPoints.Count >= ExpandedState.Capacity)
             return;
 
-        // Clone the vanilla spawn points into extra rows in front of them. SpawnPoint.Awake has already destroyed each
-        // one's placeholder car preview, so the clones don't get one.
+        // SpawnPoint.Awake has already destroyed each one's placeholder car preview, so the clones don't get one
         int vanillaCount = spawnPoints.Count;
         for (int slot = vanillaCount; slot < ExpandedState.Capacity; slot++)
         {
             var source = spawnPoints[slot % vanillaCount];
             var sourceTransform = source.transform;
             int row = slot / vanillaCount;
-            var position = sourceTransform.position + sourceTransform.forward * (SpawnRowSpacing * row);
+            var position = sourceTransform.position - sourceTransform.forward * (SpawnRowSpacing * row);
 
             var clone = Object.Instantiate(source.gameObject, position, sourceTransform.rotation, sourceTransform.parent);
             clone.name = $"{source.gameObject.name} (slot {slot + 1})";

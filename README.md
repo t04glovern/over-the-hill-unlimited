@@ -21,6 +21,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Map and player list UI refresh when the expanded data changes | Verified solo for map pins |
 | Lobby spawn points and meteorite spawns with 5+ players | Both errored in the first 5-player session; padded in 0.1.1, 5-player retest needed |
 | Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players. Pause menu rows 5+ open their player options (fixed in 0.3.0) |
+| Lobby with 5+ cars | Extra rows behind the first, and the camera rises to show every car; verified by the self-test with 16 |
+| Spawning in the map with 5+ players | Extra spawn points around each cabin, so cars don't land on top of each other; verified by the self-test with 16 |
 | Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
 | Colours for players 5+ | Their own colours on Windows (self-test); the game's default colour on native Linux |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
@@ -195,8 +197,15 @@ past the end. `PerPlayerTablePatches` pads each table up to 16 entries the first
 
 - `MeteoritesSpawnConfig.SpawnableMeteoritesByPlayersCount`, indexed by `ActivePlayers.Count() - 1`, gets copies of
   its 4-player entry.
-- `Lobby.spawnPoints`, indexed by the player's slot, gets clones of the 4 vanilla spawn points, in extra rows 8 m in
-  front of them.
+- `Lobby.spawnPoints`, indexed by the player's slot, gets clones of the 4 vanilla spawn points, in extra rows 7 m
+  behind them. The game's lobby camera is a fixed, nearly level shot of the front row, so `LobbyCameraPatches` raises
+  it to look down over the rows from the same direction, and backs it off until every car the session can hold fits.
+  Sessions for 4 or fewer keep the game's own shot.
+- Each place players spawn in the map, such as a cabin, has a few spawn points (4 at the starting cabin). Once they're
+  taken, `SpawnablePointOfInterest.GetNextFreeSpawnPoint` puts everyone else on the first one, on top of whoever is
+  there, which is every player from the 5th on when a session starts. `CabinSpawnPointPatches` adds spawn points
+  around the game's own the first time each place is used. These places sit among trees and rocks, so each extra spot
+  must be on terrain, fairly level, a car's length from the others, and clear of anything solid.
 
 ### Why everyone needs the mod
 
@@ -273,24 +282,29 @@ Launch the game with `-otu-selftest` and it tests itself:
 1. It checks that the game's networked layout matches the mod, waits for the main menu, and hosts a session in
    Unlimited mode.
 2. It checks that the mode can't be switched mid-session, not even by editing the setting directly.
-3. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default).
-4. It exercises everything that indexes per-player data: the player registry, lobby spawn points and name labels, busy
-   states, map pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD,
-   and the map, pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks
-   that their player options open.
-5. It removes the bots and quits to the main menu.
-6. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
+3. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default, or
+   `-otu-selftest-players <n>`).
+4. In the lobby, it checks that every car can be seen from the lobby camera, not out of view or hidden behind another
+   car. Then everyone spawns at the area's starting cabin the way players do (the host through the map's spawn
+   request), and it checks that no two cars land on top of each other.
+5. It exercises everything else that indexes per-player data: the player registry, name labels, busy states, map
+   pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD, and the map,
+   pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks that their
+   player options open.
+6. It removes the bots and quits to the main menu.
+7. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
    Then it clicks the checkbox through its real click handler, off and back on, and checks that the lobby reconnects
    each time.
-7. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
+8. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
    default player count back to 4).
-8. It restores your saved Unlimited mode setting and quits.
+9. It restores your saved Unlimited mode setting and quits.
 
 It also logs how long the expanded getters take compared with an unpatched one.
 
 Each section also fails if the game or BepInEx logged an error during it. Results go to `BepInEx/LogOutput.log` (source
 `OTU Self-test`) and to `BepInEx/OverTheHillUnlimited-selftest.txt`. Add `-otu-selftest-stay` to keep the game open
-afterwards, or `-otu-selftest-area <name>` to host somewhere other than the first area.
+afterwards, `-otu-selftest-area <name>` to host somewhere other than the first area, or `-otu-selftest-screenshots` to
+save screenshots of the lobby, free roam, map, pause menu and server browser to `BepInEx/OverTheHillUnlimited-screenshots/`.
 
 To run it from a shell instead of Steam (Steam must still be running):
 
@@ -301,9 +315,8 @@ $env:SteamAppId = '2929250'; $env:SteamGameId = '2929250'
 
 Bots have no network connection, so the self-test can't prove that the appended state replicates to clients. Test that
 with a second machine. Fusion only tracks connected players, so the self-test answers `ActivePlayers` and
-`TryGetPlayerObject` for the bots itself (`BotPlayers.cs`). It also closes the lobby the way the game's benchmark mode
-does, which leaves the host not counted as spawned in the map, so the host has no map marker. None of this code runs
-without the launch option.
+`TryGetPlayerObject` for the bots itself (`BotPlayers.cs`), and spawns the bots in the map through the RPC their own
+client would send. None of this code runs without the launch option.
 
 ### Project layout
 
@@ -319,6 +332,8 @@ src/OverTheHillUnlimited/
     MapNetworkCapacityPatches.cs      MapNetworkManager
     CampCapacityPatches.cs            CampManager
     PerPlayerTablePatches.cs          game data with one entry per player
+    CabinSpawnPointPatches.cs         room for every car where players spawn in the map
+    LobbyCameraPatches.cs             lobby camera that frames every car
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16

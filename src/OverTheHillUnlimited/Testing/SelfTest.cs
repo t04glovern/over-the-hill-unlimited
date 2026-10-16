@@ -39,17 +39,21 @@ internal sealed class Until
 /// <summary>
 /// The self-test, run by launching the game with -otu-selftest. Without any other players, it hosts a session in
 /// Unlimited mode and joins bot players through the game's own join path, until the session holds MaxPlayers. It then
-/// drives everything that indexes per-player data: the player registry, spawn points, lobby labels, busy states, map
-/// pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD, and the map,
-/// pause, car repair and tool selection menus. Each section also fails if the game or BepInEx logged an error during
-/// it. Results go to the BepInEx log and to BepInEx/OverTheHillUnlimited-selftest.txt, and the game quits afterwards
-/// unless -otu-selftest-stay is also given. -otu-selftest-area &lt;name&gt; picks the area (default: the first one).
+/// checks the lobby camera sees every car, spawns everyone at the starting cabin, and drives everything that indexes
+/// per-player data: the player registry, spawn points, lobby labels, busy states, map pins, portable winch anchors and
+/// their HUD markers, meteorite setups, the compass, the car health HUD, and the map, pause, car repair and tool
+/// selection menus. Each section also fails if the game or BepInEx logged an error during it. Results go to the BepInEx
+/// log and to BepInEx/OverTheHillUnlimited-selftest.txt, and the game quits afterwards unless -otu-selftest-stay is also
+/// given. -otu-selftest-area &lt;name&gt; picks the area (default: the first one), -otu-selftest-players &lt;n&gt; the
+/// session size (default: MaxPlayers), and -otu-selftest-screenshots saves screenshots along the way.
 /// </summary>
 internal sealed class SelfTest
 {
     public const string Flag = "-otu-selftest";
     const string StayFlag = "-otu-selftest-stay";
     const string AreaFlag = "-otu-selftest-area";
+    const string ScreenshotsFlag = "-otu-selftest-screenshots";
+    const string PlayersFlag = "-otu-selftest-players";
 
     readonly ManualLogSource _log;
     readonly LogWatcher _watcher;
@@ -57,6 +61,7 @@ internal sealed class SelfTest
     string _section = "";
     int _passed;
     int _failed;
+    int _screenshots;
     bool? _savedMode;
 
     public SelfTest(ManualLogSource log)
@@ -90,7 +95,9 @@ internal sealed class SelfTest
             Finish();
             yield break;
         }
-        int maxPlayers = Plugin.ConfigMaxPlayers.Value;
+        int maxPlayers = int.TryParse(ArgumentValue(PlayersFlag), out int players)
+            ? Math.Clamp(players, Plugin.VanillaMaxPlayers + 1, ExpandedState.Capacity)
+            : Plugin.ConfigMaxPlayers.Value;
         var context = new GameSetupContext
         {
             GameMode = GameMode.Host,
@@ -161,15 +168,41 @@ internal sealed class SelfTest
         Do("lobby name labels update", () => lobbyMenu.UpdateCarsStatus());
         Check("a lobby name label for every player", () => CountActive(lobbyMenu.lobbyMenuContextUI.LobbyPlayersStatus) == maxPlayers,
             () => $"{CountActive(lobbyMenu.lobbyMenuContextUI.LobbyPlayersStatus)} shown");
+        Check("every car can be seen from the lobby camera", () => HiddenLobbyCars(lobby, runner).Count == 0,
+            () => $"hidden or out of view: {string.Join(", ", HiddenLobbyCars(lobby, runner))}");
+        yield return Screenshot("lobby");
         Do("bots show as busy", () => bots.ForEach(bot => Players.RPC_SetBusyState(bot, 1, true)));
         yield return new Wait(1);
         Do("bots stop being busy", () => bots.ForEach(bot => Players.RPC_SetBusyState(bot, 1, false)));
         yield return new Wait(1);
         EndSection();
 
-        Section("Free roam");
-        Check("lobby closes", () => BenchmarkBootRunner.TryCloseLobby());
+        Section("Spawn in the map");
+        // The way players leave the lobby: Join opens the map, and picking a spawnable point of interest raises
+        // StateMapScreen.ReadyToSpawn, which spawns the local car there and closes the lobby. Bots have no client of
+        // their own, so the host spawns them through the same RPC their client would send.
+        var start = FindStartingPoint();
+        if (!Check("a point of interest to start at", () => start != null))
+        {
+            Finish();
+            yield break;
+        }
+        Do("Join opens the map", () => GameStateManager.Instance.PushState(new StateMapScreen()));
+        yield return new Wait(3);
+        Do($"host picks '{start.name}' on the map", () => GameStateManager.Instance.PeekState().TryCast<StateMapScreen>().MapControllerOnRequestSpawn(start));
+        yield return new Until("host spawned in the map", () => Players.SpawnedInMap(runner.LocalPlayer), 60);
+        int startIndex = SceneReferences.Instance.pointsOfInterest.IndexOf(start);
+        Do("bots spawn there too", () => bots.ForEach(bot => SpawnManager.Instance.RPC_RespawnPlayer(bot, startIndex)));
         yield return new Wait(5);
+        Check("the lobby has closed", () => !StateLobbyMenu.IsInLobby);
+        Check("every player spawned in the map", () => AllPlayers(runner).All(p => Players.SpawnedInMap(p)),
+            () => string.Join(", ", AllPlayers(runner).Where(p => !Players.SpawnedInMap(p)).Select(p => Players.GetPlayerName(p))));
+        Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < 60),
+            () => string.Join(", ", AllPlayers(runner).Select(p => $"{Players.GetPlayerName(p)} {Vector3.Distance(CarPosition(runner, p), start.transform.position):F0} m")));
+        Check("no two cars on top of each other", () => ClosestCars(runner) >= 3, () => $"two cars {ClosestCars(runner):F1} m apart");
+        EndSection();
+
+        Section("Free roam");
         var origin = OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position;
         Do("every player places a map pin", () =>
         {
@@ -195,22 +228,11 @@ internal sealed class SelfTest
         Do("car health HUD updates", () => carHealth?.SetupPlayerCarHealthStatus());
         Check("car health HUD has a marker for every player", () => carHealth == null || carHealth.carHealthStatusButtons.Count >= maxPlayers,
             () => $"{carHealth.carHealthStatusButtons.Count} markers");
+        yield return Screenshot("free-roam");
         EndSection();
 
         var carDamage = OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.GetComponentInChildren<CarDamageSystem>();
-        foreach (var step in OpenMenu("Map", () => new StateMapScreen(false), _ =>
-                 {
-                     var map = Object.FindObjectOfType<MapView>();
-                     Check("map is open", () => map != null);
-                     // The host skipped the normal lobby exit (TryCloseLobby), so the game doesn't count it as spawned in
-                     // the map and hides its marker; every other player should have one
-                     int spawned = AllPlayers(runner).Count(p => Players.SpawnedInMap(p));
-                     Check($"a map marker for each of the {spawned} players spawned in the map",
-                         () => spawned >= maxPlayers - 1 && CountActive(map.playerIndicators) >= spawned, () => MissingMapMarkers(map));
-                     Check("pin markers and their rects stay in step", () =>
-                             map.pinpointIndicators.Count >= maxPlayers && map.pinpointIndicatorsRectTransforms.Count == map.pinpointIndicators.Count,
-                         () => $"{map.pinpointIndicators.Count} pins, {map.pinpointIndicatorsRectTransforms.Count} rects");
-                 }))
+        foreach (var step in OpenMenu("Map", () => new StateMapScreen(false), MapSteps))
             yield return step;
         foreach (var step in OpenMenu("Pause menu", () => new StatePauseMenu(), PauseMenuSteps))
             yield return step;
@@ -256,11 +278,23 @@ internal sealed class SelfTest
 
         Finish();
 
+        IEnumerable<object> MapSteps(FunCore.StateMachine.State _)
+        {
+            var map = Object.FindObjectOfType<MapView>();
+            Check("map is open", () => map != null);
+            Check("a map marker for every player", () => CountActive(map.playerIndicators) >= maxPlayers, () => MissingMapMarkers(map));
+            Check("pin markers and their rects stay in step", () =>
+                    map.pinpointIndicators.Count >= maxPlayers && map.pinpointIndicatorsRectTransforms.Count == map.pinpointIndicators.Count,
+                () => $"{map.pinpointIndicators.Count} pins, {map.pinpointIndicatorsRectTransforms.Count} rects");
+            yield return Screenshot("map");
+        }
+
         // Rows for players 5 and up are padded clones, so check they open the player options like the game's own rows
         IEnumerable<object> PauseMenuSteps(FunCore.StateMachine.State state)
         {
             var rows = state.TryCast<StatePauseMenu>().contextUIPauseMenu.PlayerInfos;
             Check("a row for every player", () => CountActive(rows) == maxPlayers, () => $"{CountActive(rows)} rows shown");
+            yield return Screenshot("pause-menu");
             Check("every row has one click handler", () => Enumerable.Range(0, rows.Count).All(i => HandlerCount(rows[i].ButtonSelector) == 1),
                 () => string.Join(", ", Enumerable.Range(0, rows.Count).Select(i => HandlerCount(rows[i].ButtonSelector))));
 
@@ -275,6 +309,7 @@ internal sealed class SelfTest
             yield return new Wait(1);
             Check($"{name}'s player options open", () => GameStateManager.Instance.PeekState()?.TryCast<StatePauseMenuPlayerOptions>() != null,
                 () => $"top state is {GameStateManager.Instance.PeekState()?.GetIl2CppType().Name}");
+            yield return Screenshot("player-options");
             Do("player options close", () => GameStateManager.Instance.PopState());
             yield return new Wait(1);
         }
@@ -308,6 +343,7 @@ internal sealed class SelfTest
         yield return new Wait(2);
 
         Check("checkbox is labelled", () => toggle.label.text == "Unlimited mod servers", () => $"'{toggle.label.text}'");
+        yield return Screenshot("server-browser");
         foreach (bool expected in new[] { false, true })
         {
             Do($"click switches Unlimited mode {(expected ? "on" : "off")}", () => toggle.buttonSelector.OnPointerClickOrSubmit.Invoke(toggle.buttonSelector));
@@ -487,6 +523,77 @@ internal sealed class SelfTest
     // The area to host in, looked up the way the game's benchmark mode does: by name, or its default area for null
     static AreaInfo FindArea(string name) => BenchmarkBootRunner.ResolveArea(name);
 
+    // The first point of interest players can spawn at, such as the area's starting cabin
+    SpawnablePointOfInterest FindStartingPoint()
+    {
+        var points = SceneReferences.Instance?.pointsOfInterest;
+        for (int i = 0; points != null && i < points.Count; i++)
+        {
+            var spawnable = points[i]?.TryCast<SpawnablePointOfInterest>();
+            if (spawnable != null && spawnable.CanSpawnAtLocation)
+            {
+                _log.LogInfo($"Starting at '{spawnable.name}', which has {spawnable.spawnPoints?.Count ?? 0} spawn points");
+                return spawnable;
+            }
+        }
+        return null;
+    }
+
+    static Vector3 CarPosition(NetworkRunner runner, PlayerRef player)
+    {
+        if (player == runner.LocalPlayer)
+            return OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position;
+        return BotPlayers.TryGetCar(player, out var car) ? car.transform.position : Vector3.positiveInfinity;
+    }
+
+    static float ClosestCars(NetworkRunner runner)
+    {
+        var cars = AllPlayers(runner).Select(p => CarPosition(runner, p)).ToList();
+        float closest = float.PositiveInfinity;
+        for (int i = 0; i < cars.Count; i++)
+        {
+            for (int j = i + 1; j < cars.Count; j++)
+                closest = Math.Min(closest, Vector3.Distance(cars[i], cars[j]));
+        }
+        return closest;
+    }
+
+    // Players whose lobby car is out of the camera's view, or whose roof is covered on screen by a car nearer the camera
+    static List<string> HiddenLobbyCars(Lobby lobby, NetworkRunner runner)
+    {
+        var camera = Camera.main;
+        var cars = AllPlayers(runner).Select(p => (Name: Players.GetPlayerName(p), Spawn: lobby.GetSpawnPoint(p, out _).transform)).ToList();
+        var hidden = new List<string>();
+        foreach (var car in cars)
+        {
+            var roof = camera.WorldToViewportPoint(car.Spawn.position + Vector3.up * 2);
+            bool inView = roof.z > 0 && roof.x is > 0 and < 1 && roof.y is > 0 and < 1;
+            bool covered = cars.Any(other => other.Spawn != car.Spawn && Covers(camera, other.Spawn, roof));
+            if (!inView || covered)
+                hidden.Add(car.Name);
+        }
+        return hidden;
+    }
+
+    // Whether a car at this spawn point, nearer the camera than the point, covers it on screen
+    static bool Covers(Camera camera, Transform spawn, Vector3 point)
+    {
+        float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue, nearest = float.MaxValue;
+        for (int corner = 0; corner < 8; corner++)
+        {
+            var world = spawn.position + spawn.right * ((corner & 1) == 0 ? -1f : 1f)
+                                       + spawn.up * ((corner & 2) == 0 ? 0f : 1.9f)
+                                       + spawn.forward * ((corner & 4) == 0 ? -2.2f : 2.2f);
+            var viewport = camera.WorldToViewportPoint(world);
+            minX = Math.Min(minX, viewport.x);
+            maxX = Math.Max(maxX, viewport.x);
+            minY = Math.Min(minY, viewport.y);
+            maxY = Math.Max(maxY, viewport.y);
+            nearest = Math.Min(nearest, viewport.z);
+        }
+        return nearest < point.z && point.x > minX && point.x < maxX && point.y > minY && point.y < maxY;
+    }
+
     static List<PlayerRef> AllPlayers(NetworkRunner runner)
     {
         var players = new List<PlayerRef> { runner.LocalPlayer };
@@ -502,6 +609,20 @@ internal sealed class SelfTest
                 return i;
         }
         return -1;
+    }
+
+    // With -otu-selftest-screenshots, saves the screen to BepInEx/OverTheHillUnlimited-screenshots. Yield the result:
+    // Unity captures at the end of the frame, so the script waits for it before changing what's on screen.
+    object Screenshot(string name)
+    {
+        if (!HasArgument(ScreenshotsFlag))
+            return null;
+        string folder = Path.Combine(Paths.BepInExRootPath, "OverTheHillUnlimited-screenshots");
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, $"{++_screenshots:00}-{name}.png");
+        ScreenCapture.CaptureScreenshot(path);
+        _log.LogInfo($"Screenshot at {Screen.width}x{Screen.height}: {path}");
+        return new Wait(1);
     }
 
     static int HandlerCount(UIButtonSelector button) =>
