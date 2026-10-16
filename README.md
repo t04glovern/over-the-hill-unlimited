@@ -256,7 +256,11 @@ Launch the game with `-otu-selftest` and it tests itself:
 3. It exercises everything that indexes per-player data: the player registry, lobby spawn points and name labels, busy
    states, map pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD,
    and the map, pause, car repair and tool selection menus.
-4. It removes the bots and quits.
+4. It removes the bots and quits to the main menu.
+5. In the server browser, it clicks the **Unlimited mod servers** checkbox through its real click handler, off and back
+   on, and checks that the lobby reconnects each time.
+6. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded).
+7. It restores your saved Unlimited mode setting and quits.
 
 Each section also fails if the game or BepInEx logged an error during it. Results go to `BepInEx/LogOutput.log` (source
 `OTU Self-test`) and to `BepInEx/OverTheHillUnlimited-selftest.txt`. Add `-otu-selftest-stay` to keep the game open

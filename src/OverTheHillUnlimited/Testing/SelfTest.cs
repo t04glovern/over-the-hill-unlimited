@@ -57,6 +57,7 @@ internal sealed class SelfTest
     string _section = "";
     int _passed;
     int _failed;
+    bool? _savedMode;
 
     public SelfTest(ManualLogSource log)
     {
@@ -69,6 +70,7 @@ internal sealed class SelfTest
     public IEnumerator<object> Run()
     {
         _log.LogInfo("Self-test starting: hosting a session and filling it with bot players");
+        _savedMode = UnlimitedMode.Enabled;
 
         Section("Setup");
         if (!UnlimitedMode.Enabled)
@@ -234,7 +236,73 @@ internal sealed class SelfTest
         Check("only the host is left", () => Players.GetPlayerCount() == 1, () => $"{Players.GetPlayerCount()} registered");
         EndSection();
 
+        Section("Back to the main menu");
+        Do("quit to the main menu", () => OverlandNetworkRunner.Instance.QuitToMenuAsync(default, ""));
+        yield return new Until("main menu", () => Players == null && GameStateManager.Instance.PeekState()?.TryCast<StateMainMenu>() != null, 120);
+        yield return new Wait(3);
+        EndSection();
+
+        foreach (var step in TestServerBrowserCheckbox())
+            yield return step;
+        foreach (var step in TestVanillaMode(area))
+            yield return step;
+
         Finish();
+    }
+
+    // Clicks the server browser's Unlimited mod servers checkbox through its real click handler, twice
+    IEnumerable<object> TestServerBrowserCheckbox()
+    {
+        Section("Server browser checkbox");
+        if (!Do("server browser opens", () => GameStateManager.Instance.PushState(new StateServerBrowser(new GameSetupContext()))))
+        {
+            EndSection();
+            yield break;
+        }
+        yield return new Until("server browser checkbox", () => ServerBrowserTogglePatches.Toggle != null, 60);
+        yield return new Until("lobby connection", () => OverlandNetworkRunner.Instance?.IsConnectedToLobby == true, 60);
+        yield return new Wait(2);
+
+        var toggle = ServerBrowserTogglePatches.Toggle;
+        Check("checkbox is labelled", () => toggle.label.text == "Unlimited mod servers", () => $"'{toggle.label.text}'");
+        foreach (bool expected in new[] { false, true })
+        {
+            Do($"click switches Unlimited mode {(expected ? "on" : "off")}", () => toggle.buttonSelector.OnPointerClickOrSubmit.Invoke(toggle.buttonSelector));
+            Check($"Unlimited mode is {(expected ? "on" : "off")}", () => UnlimitedMode.Enabled == expected);
+            Check("checkbox waits for the lobby to reconnect", () => ServerBrowserTogglePatches.IsReconnecting && !toggle.buttonSelector.interactable);
+            yield return new Until("lobby reconnects", () => !ServerBrowserTogglePatches.IsReconnecting, 30);
+            Check("checkbox usable again", () => toggle.buttonSelector.interactable);
+        }
+        Do("server browser closes", () => GameStateManager.Instance.PopState());
+        yield return new Wait(2);
+        EndSection();
+    }
+
+    // Hosts once more with Unlimited mode off and checks the game stays vanilla
+    IEnumerable<object> TestVanillaMode(AreaInfo area)
+    {
+        Section("Vanilla mode");
+        Check("Unlimited mode switches off", () => UnlimitedMode.TrySetEnabled(false));
+        var context = new GameSetupContext
+        {
+            GameMode = GameMode.Host,
+            MaxPlayers = Plugin.VanillaMaxPlayers,
+            RoomName = "OTU self-test (vanilla)",
+            ServerRegion = "auto",
+            AreaInfo = area,
+        };
+        Do("host a vanilla session", () => GameStateManager.Instance.PushState(new StateStartGame(context)));
+        yield return new Until("vanilla session started", () => Players != null && Players.GetPlayerCount() >= 1, 300);
+        yield return new Wait(3);
+
+        var runner = OverlandNetworkRunner.Instance.NetworkRunner;
+        Check("Fusion session size is the vanilla 4", () => runner.SessionInfo.MaxPlayers == Plugin.VanillaMaxPlayers,
+            () => $"{runner.SessionInfo.MaxPlayers}");
+        Check("player list not expanded", () => !SessionPlayersCapacityPatches.State.IsExpanded(Players));
+        Check("map state not expanded", () => !MapNetworkCapacityPatches.State.IsExpanded(MapNetworkManager.Instance));
+        Check("vanilla player list has 4 slots", () => Players.OrderedPlayerRefs.Length == Plugin.VanillaMaxPlayers,
+            () => $"{Players.OrderedPlayerRefs.Length}");
+        EndSection();
     }
 
     /// <summary>Fails the run when a wait times out.</summary>
@@ -345,6 +413,10 @@ internal sealed class SelfTest
             _log.LogWarning($"Couldn't write the results file: {e.Message}");
         }
         _watcher.Dispose();
+
+        // Put the player's saved Unlimited mode back. Set directly: switching normally isn't allowed mid-session.
+        if (_savedMode.HasValue)
+            Plugin.ConfigExpandPlayerSlots.Value = _savedMode.Value;
 
         if (!HasArgument(StayFlag))
             Application.Quit();

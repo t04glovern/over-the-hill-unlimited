@@ -23,6 +23,12 @@ public class ServerBrowserTogglePatches
     static bool? _shownInteractable;
     static float _lastClickTime = float.NegativeInfinity;
 
+    /// <summary>The checkbox in the open server browser, if any (for the self-test).</summary>
+    internal static ContextUIButtonSelectorWithTextAndIcon Toggle => _toggle;
+
+    /// <summary>Whether the checkbox is waiting for the lobby to reconnect (for the self-test).</summary>
+    internal static bool IsReconnecting => Reconnecting;
+
     static bool Reconnecting
     {
         get
