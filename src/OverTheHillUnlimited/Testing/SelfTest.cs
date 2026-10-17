@@ -380,6 +380,12 @@ internal sealed partial class SelfTest
         yield return new Wait(2);
 
         Check("checkbox is labelled", () => toggle.label.text == "Unlimited mod servers", () => $"'{toggle.label.text}'");
+        // Only other players' servers can show this, so it's only a real check while some are up in this region
+        var (servers, above4, hidden) = CountListedServers();
+        int shown = Object.FindObjectOfType<SessionInfoListAdapter>()?.Data?.Count ?? 0;
+        Record($"INFO {_section}: the lobby has {servers} Unlimited servers, {above4} of them for more than 4 players, " +
+               $"and the list shows {shown}");
+        Check("Unlimited servers for more than 4 players are listed", () => hidden == 0, () => $"{hidden} of {above4} hidden");
         _probe?.Scan("server browser");
         yield return Screenshot("server-browser");
         foreach (bool expected in new[] { false, true })
@@ -394,6 +400,21 @@ internal sealed partial class SelfTest
         Do("server browser closes", () => GameStateManager.Instance.PopState());
         yield return new Wait(2);
         EndSection();
+    }
+
+    static (int Servers, int Above4, int Hidden) CountListedServers()
+    {
+        var list = OverlandNetworkRunner.Instance?.SessionList;
+        int servers = list?.Count ?? 0, above4 = 0, hidden = 0;
+        for (int i = 0; i < servers; i++)
+        {
+            if (list[i].FusionSessionInfo.MaxPlayers <= Plugin.VanillaMaxPlayers)
+                continue;
+            above4++;
+            if (!list[i].VisibleInList)
+                hidden++;
+        }
+        return (servers, above4, hidden);
     }
 
     // Hosts once more with Unlimited mode off and checks the game stays vanilla

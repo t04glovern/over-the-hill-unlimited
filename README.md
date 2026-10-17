@@ -303,6 +303,12 @@ layouts differ are kept apart the same way. The protocol number is bumped when t
 without changing size. With Unlimited mode off, the AppVersion is left alone, so you're matched with vanilla players
 again.
 
+Since the game's 17 October update (build 25992246), the server list also hides every server for more than 4 players:
+`OverlandSessionInfo` sets `VisibleInList` from the session's Max Players, and `SessionInfoListAdapter.ApplyFilters`
+skips the ones it leaves false. In Unlimited mode the lobby only holds modded servers, so a prefix on `ApplyFilters`
+sets it again for servers of up to 16 players. Il2CppInterop can't patch the constructor that sets it, so it's done
+just before the filters read it. In vanilla mode the game's rule stands.
+
 ### Switching modes
 
 `UnlimitedMode` is a runtime switch, saved as `ExpandPlayerSlots`. Every patch is applied at startup either way, and
@@ -395,9 +401,10 @@ Launch the game with `-otu-selftest` and it tests itself:
    player around a campfire and checks none overlap, fills voice chat with 15 other participants, and finally sends
    everyone through a portal and checks every player arrives with a car, on spawn points a car's length apart.
 7. It removes the bots and quits to the main menu.
-8. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects.
-   Then it clicks the checkbox through its real click handler, off and back on, and checks that the lobby reconnects
-   each time.
+8. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects,
+   and that other players' Unlimited servers for more than 4 players aren't hidden (a real check only while some are
+   up in your region). Then it clicks the checkbox through its real click handler, off and back on, and checks that
+   the lobby reconnects each time.
 9. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
    default player count back to 4).
 10. It restores your saved Unlimited mode setting and quits.

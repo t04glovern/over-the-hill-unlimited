@@ -10,7 +10,7 @@
         <CheckEolTargetFramework>false</CheckEolTargetFramework>
 
         <RootNamespace>OverTheHillUnlimited</RootNamespace>
-        <Version>0.4.3</Version>
+        <Version>0.4.4</Version>
 
         <LangVersion>latest</LangVersion>
         <Nullable>disable</Nullable>
