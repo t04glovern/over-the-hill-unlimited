@@ -541,6 +541,7 @@ Logs:
 - [BepInEx](https://github.com/BepInEx/BepInEx), [MelonLoader](https://github.com/LavaGang/MelonLoader),
   [Il2CppInterop](https://github.com/BepInEx/Il2CppInterop), [HarmonyX](https://github.com/BepInEx/HarmonyX) and
   [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL)
+- [livixis](https://www.nexusmods.com/profile/livixis) on Nexus Mods, for the idea of supporting MelonLoader
 - The community MelonLoader port of 0.4.1 on Nexus Mods, which showed players wanted a MelonLoader version
 
 ## License
