@@ -349,14 +349,17 @@ which would otherwise leave a connection open with the old AppVersion.
 
 ```
 dotnet build
+dotnet build src/OverTheHillUnlimited.MelonLoader
 ```
 
-There are two projects, one per loader, built from the same source:
+The first builds the BepInEx version: the solution leaves the MelonLoader project out of its build, so it works without
+MelonLoader installed. The second builds the MelonLoader version. There are two projects, one per loader, built from
+the same source:
 - `src/OverTheHillUnlimited` is the BepInEx build. Its references come straight from the game's `BepInEx/core` and
   `BepInEx/interop` folders, and it copies the DLL and PDB into `BepInEx/plugins/OverTheHillUnlimited/`.
 - `src/OverTheHillUnlimited.MelonLoader` is the MelonLoader build. It compiles the BepInEx project's source, except
   `Loader/BepInEx/`, against `MelonLoader/net6` and `MelonLoader/Il2CppAssemblies`, and copies
-  `OverTheHillUnlimited.MelonLoader.dll` into `Mods/`.
+  `OverTheHillUnlimited.MelonLoader.dll` and its PDB into `Mods/`.
 
 The only package is the .NET reference pack; `nuget.config` adds nuget.org for it. The copies fail with a warning while
 the game is running, because the DLL is locked. If the game isn't in the default Steam location, or MelonLoader is in a
@@ -402,7 +405,7 @@ Launch the game with `-otu-selftest` and it tests itself:
 It also logs how long the expanded getters take compared with an unpatched one.
 
 Each section also fails if the game or the mod loader logged an error during it. Results go to the loader's log (source
-`OTU Self-test`) and to `OverTheHillUnlimited-selftest.txt`: `BepInEx/LogOutput.log` and `BepInEx/` with BepInEx,
+`OTU Self-test`, which MelonLoader shows as `OTU_Self-test`) and to `OverTheHillUnlimited-selftest.txt`: `BepInEx/LogOutput.log` and `BepInEx/` with BepInEx,
 `MelonLoader/Latest.log` and `UserData/` with MelonLoader. It runs the same on both. Add `-otu-selftest-stay` to keep the
 game open afterwards, `-otu-selftest-area <name>` to host somewhere other than the first area, or
 `-otu-selftest-screenshots` to save screenshots of the lobby, free roam, map, pause menu and server browser to

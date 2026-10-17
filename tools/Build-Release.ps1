@@ -43,12 +43,20 @@ function Pack([string]$zipName, [string]$buildDir, [string[]]$files, [string]$fo
     Write-Host "Packaged $zip"
 }
 
+$melonArgs = @()
+if ($MelonLoaderGameDir) {
+    # A quoted folder ending in a backslash ("C:\Games\over the hill\") arrives through powershell -File with a stray
+    # quote, the backslash having escaped it
+    $dir = (Resolve-Path $MelonLoaderGameDir.Trim('"')).Path.TrimEnd('\', '/')
+    # Passed on without a trailing backslash for the same reason: Windows PowerShell quotes arguments with spaces
+    $melonArgs += "-p:MelonLoaderGameDir=$dir"
+}
+
+# Both are built before either is packaged, so a failed build can't leave a release half made
 Build "src\OverTheHillUnlimited\OverTheHillUnlimited.csproj" @()
+Build "src\OverTheHillUnlimited.MelonLoader\OverTheHillUnlimited.MelonLoader.csproj" $melonArgs
+
 Pack "OverTheHillUnlimited-$version.zip" (Join-Path $root "src\OverTheHillUnlimited\bin\Release\net6.0") `
     @("OverTheHillUnlimited.dll", "OverTheHillUnlimited.pdb") "BepInEx/plugins/OverTheHillUnlimited"
-
-$melonArgs = @()
-if ($MelonLoaderGameDir) { $melonArgs += "-p:MelonLoaderGameDir=$MelonLoaderGameDir" }
-Build "src\OverTheHillUnlimited.MelonLoader\OverTheHillUnlimited.MelonLoader.csproj" $melonArgs
 Pack "OverTheHillUnlimited-$version-MelonLoader.zip" (Join-Path $root "src\OverTheHillUnlimited.MelonLoader\bin\Release\net6.0") `
-    @("OverTheHillUnlimited.MelonLoader.dll") "Mods"
+    @("OverTheHillUnlimited.MelonLoader.dll", "OverTheHillUnlimited.MelonLoader.pdb") "Mods"

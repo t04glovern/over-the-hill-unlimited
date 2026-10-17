@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
 using Il2CppInterop.Runtime.Injection;
 using MelonLoader;
+using MelonLoader.Preferences;
 using MelonLoader.Utils;
 using OverTheHillUnlimited;
 using OverTheHillUnlimited.Testing;
@@ -23,6 +26,9 @@ public partial class Plugin : MelonMod
     static MelonPreferences_Category _settings;
     static bool _selfTestRequested;
 
+    // Work for the main thread, from MelonLoader's preferences file watcher
+    static readonly ConcurrentQueue<Action> _mainThreadWork = new();
+
     public override void OnInitializeMelon() => Start(new MelonLog(LoggerInstance));
 
     // The self-test's runner is a Unity component, so it's added once Unity is up
@@ -37,61 +43,84 @@ public partial class Plugin : MelonMod
         host.AddComponent<SelfTestRunner>();
     }
 
+    public override void OnUpdate()
+    {
+        while (_mainThreadWork.TryDequeue(out var work))
+            work();
+    }
+
     public override void OnDeinitializeMelon() => Stop();
 
     /// <summary>Where the self-test writes its results: MelonLoader's UserData folder.</summary>
     internal static string DataDirectory => MelonEnvironment.UserDataDirectory;
 
-    internal static IModLog CreateLog(string name) => new MelonLog(new MelonLogger.Instance(name));
+    internal static IModLog CreateLog(string name) => new MelonLog(new MelonLogger.Instance(name), name);
 
     static void AddSelfTestRunner() => _selfTestRequested = true;
 
     /// <summary>Calls back with the source and message of every error logged through MelonLoader, until disposed.</summary>
     internal static IDisposable ListenForErrors(Action<string, string> onError) => new ErrorListener(onError);
 
+    /// <summary>
+    /// For the self-test: changes a setting the way something outside the mod would. That's MelonLoader reloading an
+    /// edited MelonPreferences.cfg, which its file watcher does on a thread-pool thread.
+    /// </summary>
+    internal static void ChangeSettingFromOutside<T>(Setting<T> setting, T value) =>
+        Task.Run(() => ((MelonSetting<T>)setting).Entry.Value = value).Wait();
+
     // Every setting goes in one [OverTheHillUnlimited] category of UserData\MelonPreferences.cfg
     static MelonPreferences_Category Settings => _settings ??= MelonPreferences.CreateCategory(Id, Name);
 
     static Setting<T> Bind<T>(string section, string key, T defaultValue, string description) =>
-        new MelonSetting<T>(Settings.CreateEntry(key, defaultValue, key, description), null);
+        new MelonSetting<T>(Settings.CreateEntry(key, defaultValue, key, description));
 
+    // MelonLoader applies the range whenever the value is set, including when it reads the file
     static Setting<int> BindRange(string section, string key, int defaultValue, int min, int max, string description) =>
-        new MelonSetting<int>(Settings.CreateEntry(key, defaultValue, key, $"{description} From {min} to {max}."),
-            value => Math.Clamp(value, min, max));
+        new MelonSetting<int>(Settings.CreateEntry(key, defaultValue, key, $"{description} From {min} to {max}.",
+            validator: new ValueRange<int>(min, max)));
 
     sealed class MelonLog : IModLog
     {
         readonly MelonLogger.Instance _logger;
 
-        public MelonLog(MelonLogger.Instance logger) => _logger = logger;
-
-        public void LogInfo(object data) => _logger.Msg(data);
-        public void LogMessage(object data) => _logger.Msg(data);
-        public void LogWarning(object data) => _logger.Warning(data);
-        public void LogError(object data) => _logger.Error(data);
-    }
-
-    // MelonLoader doesn't range-check values read from the file, so out-of-range ones are clamped on reading
-    sealed class MelonSetting<T> : Setting<T>
-    {
-        readonly MelonPreferences_Entry<T> _entry;
-        readonly Func<T, T> _clamp;
-
-        public MelonSetting(MelonPreferences_Entry<T> entry, Func<T, T> clamp)
+        public MelonLog(MelonLogger.Instance logger, string name = null)
         {
-            _entry = entry;
-            _clamp = clamp;
-            _entry.OnEntryValueChanged.Subscribe(OnValueChanged);
+            _logger = logger;
+            // MelonLoader shows a logger's name with its spaces as underscores
+            Name = (name ?? Plugin.Name).Replace(' ', '_');
         }
 
-        void OnValueChanged(T oldValue, T newValue) => RaiseChanged();
+        public string Name { get; }
+
+        // MelonLoader's logger calls ToString() on what it's given, so a null message would throw
+        public void LogInfo(object data) => _logger.Msg(Text(data));
+        public void LogMessage(object data) => _logger.Msg(Text(data));
+        public void LogWarning(object data) => _logger.Warning(Text(data));
+        public void LogError(object data) => _logger.Error(Text(data));
+
+        static string Text(object data) => data?.ToString() ?? "null";
+    }
+
+    // MelonLoader raises an entry's change events inside its setter, and on the file watcher's thread when the file is
+    // edited, so Changed is raised from OnUpdate instead: on the main thread, once the setter is done
+    sealed class MelonSetting<T> : Setting<T>
+    {
+        public MelonSetting(MelonPreferences_Entry<T> entry)
+        {
+            Entry = entry;
+            Entry.OnEntryValueChanged.Subscribe(OnEntryValueChanged);
+        }
+
+        public MelonPreferences_Entry<T> Entry { get; }
+
+        void OnEntryValueChanged(T oldValue, T newValue) => _mainThreadWork.Enqueue(RaiseChanged);
 
         public override T Value
         {
-            get => _clamp != null ? _clamp(_entry.Value) : _entry.Value;
+            get => Entry.Value;
             set
             {
-                _entry.Value = value;
+                Entry.Value = value;
                 Settings.SaveToFile(false);
             }
         }

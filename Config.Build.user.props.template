@@ -4,9 +4,9 @@
         <!-- Game install folder (the one containing "over the hill.exe") with BepInEx installed -->
         <GameDir>C:\Program Files (x86)\Steam\steamapps\common\over the hill</GameDir>
 
-        <!-- Game folder with MelonLoader installed, for the MelonLoader build. Defaults to GameDir; a copy of the game
-             folder keeps the two loaders apart. -->
-        <MelonLoaderGameDir>C:\Program Files (x86)\Steam\steamapps\common\over the hill</MelonLoaderGameDir>
+        <!-- Game folder with MelonLoader installed, for the MelonLoader build. It defaults to GameDir; set it when
+             MelonLoader is in a copy of the game folder, which keeps the two loaders apart. -->
+        <!-- <MelonLoaderGameDir>C:\Games\over the hill (MelonLoader)</MelonLoaderGameDir> -->
 
         <!-- Set to false to stop builds copying the mod into BepInEx\plugins or Mods -->
         <DeployToGame>true</DeployToGame>

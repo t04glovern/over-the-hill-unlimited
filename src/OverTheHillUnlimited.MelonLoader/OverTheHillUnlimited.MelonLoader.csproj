@@ -57,7 +57,7 @@
 
     <!-- Copy the built mod into the game. Fails soft while the game is running (the DLL is locked). -->
     <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(DeployToGame)' != 'false'">
-        <Copy SourceFiles="$(TargetPath)"
+        <Copy SourceFiles="$(TargetPath);$(TargetDir)$(TargetName).pdb"
               DestinationFolder="$(ModDeployDir)"
               ContinueOnError="WarnAndContinue" />
         <Message Importance="high" Text="Deployed $(TargetFileName) to $(ModDeployDir)" />

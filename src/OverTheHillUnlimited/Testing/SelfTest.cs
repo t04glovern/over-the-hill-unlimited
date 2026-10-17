@@ -66,7 +66,7 @@ internal sealed partial class SelfTest
     public SelfTest(IModLog log)
     {
         _log = log;
-        _watcher = new LogWatcher(LogName);
+        _watcher = new LogWatcher(log.Name);
     }
 
     public static bool Requested => HasArgument(Flag);
@@ -121,7 +121,11 @@ internal sealed partial class SelfTest
         Check("camp state expanded", () => camp == null || CampCapacityPatches.State.IsExpanded(camp),
             () => "no CampManager in this area");
         Check("Unlimited mode can't be switched mid-session", () => !UnlimitedMode.TrySetEnabled(false) && UnlimitedMode.Enabled);
-        Do("saved setting changed from outside the mod", () => Plugin.ConfigExpandPlayerSlots.Value = false);
+        // From another plugin on BepInEx; on MelonLoader, from its preferences file watcher on a thread-pool thread
+        Do("saved setting changed from outside the mod",
+            () => Plugin.ChangeSettingFromOutside(Plugin.ConfigExpandPlayerSlots, false));
+        Check("the mode in force doesn't change, even before the setting goes back", () => UnlimitedMode.Enabled);
+        yield return new Wait(0.5f);
         Check("the change is undone", () => Plugin.ConfigExpandPlayerSlots.Value && UnlimitedMode.Enabled);
         Record($"INFO {_section}: per call, an unpatched networked getter takes {MicrosecondsPerCall(() => _ = Players.HostPlayerRef):F1} µs, " +
                $"the expanded player order {MicrosecondsPerCall(() => _ = Players.OrderedPlayerRefs):F1} µs, " +

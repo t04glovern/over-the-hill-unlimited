@@ -10,14 +10,16 @@ namespace OverTheHillUnlimited;
 /// </summary>
 internal static class UnlimitedMode
 {
-    // The setting as of the last change made outside a session
+    // The setting as of the last change made outside a session: the mode in force
     static bool _saved;
     static bool _reverting;
 
     /// <summary>Whether the game's networked layout matches the mod's, checked once at startup.</summary>
     public static bool Available { get; private set; }
 
-    public static bool Enabled => Available && Plugin.ConfigExpandPlayerSlots.Value;
+    // Not the setting itself: on MelonLoader, an edit to the preferences file changes it on another thread, a frame
+    // before OnSettingChanged can undo it
+    public static bool Enabled => Available && _saved;
 
     /// <summary>Networked objects keep the layout they were created with, so the mode only changes outside a session.</summary>
     public static bool CanChange => Available && !InSession;
@@ -67,6 +69,7 @@ internal static class UnlimitedMode
             return false;
         }
 
+        _saved = enabled;
         Plugin.ConfigExpandPlayerSlots.Value = enabled; // the mod loader saves the config file
         Plugin.Logger.LogInfo(enabled
             ? $"Unlimited mode on: modded servers, up to {ExpandedState.Capacity} players"
