@@ -40,4 +40,23 @@ public class ModdedLobbyPatches
     }
 
     static bool _logged;
+
+    // Since build 25992246 the game leaves servers for more than 4 players out of the server list: each session's
+    // VisibleInList is set from its MaxPlayers, and the list's filters skip the rest. In Unlimited mode the lobby only
+    // holds modded servers, so those are listed again; in vanilla mode the game's rule stands. Set here, just before the
+    // filters read it, because Il2CppInterop can't patch the constructor that sets it.
+    [HarmonyPatch(typeof(SessionInfoListAdapter), nameof(SessionInfoListAdapter.ApplyFilters))]
+    [HarmonyPrefix]
+    static void ListUnlimitedServers()
+    {
+        var sessions = UnlimitedMode.Enabled ? OverlandNetworkRunner.Instance?.SessionList : null;
+        if (sessions == null)
+            return;
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            var session = sessions[i];
+            if (!session.VisibleInList && session.FusionSessionInfo?.MaxPlayers <= ExpandedState.Capacity)
+                session.VisibleInList = true;
+        }
+    }
 }
