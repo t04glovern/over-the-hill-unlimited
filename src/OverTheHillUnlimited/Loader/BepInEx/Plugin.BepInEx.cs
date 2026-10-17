@@ -38,6 +38,12 @@ public partial class Plugin : BasePlugin
     /// <summary>Calls back with the source and message of every error logged through BepInEx, until disposed.</summary>
     internal static IDisposable ListenForErrors(Action<string, string> onError) => new ErrorListener(onError);
 
+    /// <summary>
+    /// For the self-test: changes a setting the way something outside the mod would. BepInEx doesn't watch its config
+    /// file, so that's another plugin, such as a config manager, setting it on the main thread.
+    /// </summary>
+    internal static void ChangeSettingFromOutside<T>(Setting<T> setting, T value) => setting.Value = value;
+
     static Setting<T> Bind<T>(string section, string key, T defaultValue, string description) =>
         new BepInExSetting<T>(_instance.Config.Bind(section, key, defaultValue, description));
 
@@ -50,6 +56,8 @@ public partial class Plugin : BasePlugin
         readonly ManualLogSource _source;
 
         public BepInExLog(ManualLogSource source) => _source = source;
+
+        public string Name => _source.SourceName;
 
         public void LogInfo(object data) => _source.LogInfo(data);
         public void LogMessage(object data) => _source.LogMessage(data);

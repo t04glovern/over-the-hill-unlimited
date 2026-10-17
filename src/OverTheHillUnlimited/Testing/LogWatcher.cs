@@ -4,20 +4,27 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
+using LogType = UnityEngine.LogType;
 
 namespace OverTheHillUnlimited.Testing;
 
 /// <summary>
-/// Collects the errors raised while a self-test step runs: exceptions the game logs to Unity's Player.log, and errors
-/// logged through the mod loader (Il2CppInterop reports exceptions thrown inside patched methods there).
+/// Collects the errors raised while a self-test step runs: exceptions the game logs to Unity's Player.log (read with
+/// their first stack frame), the errors and failed asserts Unity logs (the game's and Fusion's), and errors logged
+/// through the mod loader (Il2CppInterop reports exceptions thrown inside patched methods there). Unity's log is heard
+/// directly, the same on either loader: BepInEx would pass it on as a "Unity" source, MelonLoader doesn't.
 /// </summary>
 internal sealed class LogWatcher : IDisposable
 {
+    const string UnitySource = "Unity";
+
     static readonly Regex UnityExceptionLine = new(@"^[A-Za-z_][\w.`]*Exception: ", RegexOptions.Compiled);
 
-    // Errors the game logs that aren't the mod's doing: level data wherever a car arrives, and each car's track-reset RPC
-    // arriving before the snow and mud tracks system has set itself up in a new session
-    static readonly string[] GameContentErrors = { "is not on a NavMesh", "TraxManager not yet initialized" };
+    // Errors the game logs that aren't the mod's doing: level data wherever a car arrives, each car's track-reset RPC
+    // arriving before the snow and mud tracks system has set itself up in a new session, and the analytics SDK failing
+    // to upload (from its own thread, so only Unity's threaded log callback hears it)
+    static readonly string[] GameContentErrors =
+        { "is not on a NavMesh", "TraxManager not yet initialized", "[GameAnalytics Native]" };
 
     // Exceptions from the game's own races, by their first stack frame, all while quitting to the menu shuts the runner
     // down: HUDManager's ping icon coroutine reads the network runner without a null check, and since build 25992246
@@ -27,31 +34,35 @@ internal sealed class LogWatcher : IDisposable
 
     readonly string _ignoredSource;
     readonly string _playerLogPath;
-    readonly List<string> _loaderErrors = new();
-    readonly IDisposable _listener;
+    readonly List<string> _loggedErrors = new();
+    readonly IDisposable _loaderListener;
+    readonly Application.LogCallback _unityListener;
     long _playerLogOffset;
 
+    /// <param name="ignoredSource">The self-test's own log, by the name the loader reports it under.</param>
     public LogWatcher(string ignoredSource)
     {
         _ignoredSource = ignoredSource;
         _playerLogPath = Application.consoleLogPath;
-        _listener = Plugin.ListenForErrors(OnLoaderError);
+        _loaderListener = Plugin.ListenForErrors(OnLoaderError);
+        _unityListener = (Application.LogCallback)new Action<string, string, LogType>(OnUnityLog);
+        Application.add_logMessageReceivedThreaded(_unityListener);
     }
 
     /// <summary>Starts a new collection window.</summary>
     public void Mark()
     {
         _playerLogOffset = PlayerLogLength();
-        lock (_loaderErrors)
-            _loaderErrors.Clear();
+        lock (_loggedErrors)
+            _loggedErrors.Clear();
     }
 
     /// <summary>Errors logged since the last Mark, each with its first stack frame where there is one.</summary>
     public List<string> ErrorsSinceMark()
     {
         var errors = new List<string>();
-        lock (_loaderErrors)
-            errors.AddRange(_loaderErrors);
+        lock (_loggedErrors)
+            errors.AddRange(_loggedErrors);
 
         var lines = ReadPlayerLogSince(_playerLogOffset);
         for (int i = 0; i < lines.Length; i++)
@@ -68,24 +79,38 @@ internal sealed class LogWatcher : IDisposable
         return errors;
     }
 
+    // Unity's own log is heard by OnUnityLog, so BepInEx's copy of it is skipped
     void OnLoaderError(string source, string message)
     {
-        if (source == _ignoredSource)
-            return;
+        if (source != _ignoredSource && source != UnitySource)
+            Record($"{Plugin.Loader} [{source}]", message);
+    }
+
+    // Called on whichever thread logged. Exceptions reach Player.log too, where ErrorsSinceMark reads them with their
+    // stack frame, so only errors and failed asserts are taken here.
+    void OnUnityLog(string condition, string stackTrace, LogType type)
+    {
+        if ((type == LogType.Error || type == LogType.Assert) && !UnityExceptionLine.IsMatch(condition ?? ""))
+            Record(UnitySource, condition ?? "");
+    }
+
+    void Record(string where, string message)
+    {
         foreach (string known in GameContentErrors)
         {
             if (message.Contains(known))
                 return;
         }
-        // Unity's exceptions reach Player.log too, where ErrorsSinceMark reads them with their stack frame
-        if (source == "Unity" && UnityExceptionLine.IsMatch(message))
-            return;
         int newline = message.IndexOf('\n');
-        lock (_loaderErrors)
-            _loaderErrors.Add($"{Plugin.Loader} [{source}]: {(newline < 0 ? message : message[..newline])}");
+        lock (_loggedErrors)
+            _loggedErrors.Add($"{where}: {(newline < 0 ? message : message[..newline])}");
     }
 
-    public void Dispose() => _listener.Dispose();
+    public void Dispose()
+    {
+        _loaderListener.Dispose();
+        Application.remove_logMessageReceivedThreaded(_unityListener);
+    }
 
     long PlayerLogLength()
     {
