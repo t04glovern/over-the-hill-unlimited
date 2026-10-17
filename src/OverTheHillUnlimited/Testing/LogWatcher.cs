@@ -20,9 +20,11 @@ internal sealed class LogWatcher : ILogListener
     // arriving before the snow and mud tracks system has set itself up in a new session
     static readonly string[] GameContentErrors = { "is not on a NavMesh", "TraxManager not yet initialized" };
 
-    // Exceptions from the game's own races, by their first stack frame: HUDManager's ping icon coroutine reads the
-    // network runner without a null check, so it throws if it ticks while quitting to the menu shuts the runner down
-    static readonly string[] GameRaceFrames = { "HUDManager.UpdatePingIcon" };
+    // Exceptions from the game's own races, by their first stack frame, all while quitting to the menu shuts the runner
+    // down: HUDManager's ping icon coroutine reads the network runner without a null check, and since build 25992246
+    // WheelTransformUpdater.Update indexes its car's per-wheel data by corner, which is already gone as the cars are
+    // torn down
+    static readonly string[] GameRaceFrames = { "HUDManager.UpdatePingIcon", "WheelTransformUpdater.Update" };
 
     readonly string _ignoredSource;
     readonly string _playerLogPath;
