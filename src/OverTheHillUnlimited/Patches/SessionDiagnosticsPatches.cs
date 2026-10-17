@@ -1,4 +1,3 @@
-using Fusion;
 using HarmonyLib;
 
 namespace OverTheHillUnlimited.Patches;

@@ -30,6 +30,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Discord voice chat with 5+ players | An emitter for every other player (self-test of the slots; audio needs a real call) |
 | Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
 | Colours for players 5+ | Their own colours on Windows (self-test); the game's default colour on native Linux |
+| MelonLoader 0.7.3 | The same mod, built from the same source: passes the self-test with 16 players and uses the same modded servers as the BepInEx version. Playing across loaders hasn't been tested with real players yet |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
 | Switching between modded and vanilla in game | Verified: the "Unlimited mod servers" checkbox in the server browser switches the list and Max Players |
@@ -38,11 +39,16 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 
 Everyone in the session needs to do this, not just the host, and everyone needs the same mod version.
 
+The mod comes for both of the game's mod loaders, [BepInEx](https://github.com/BepInEx/BepInEx) 6 and
+[MelonLoader](https://github.com/LavaGang/MelonLoader) 0.7. Use the one your other mods use: most mods for Over the Hill
+use MelonLoader. Don't install both loaders. The two versions are the same mod, built from the same code, and use the
+same modded servers.
+
 The server browser gets an **Unlimited mod servers** checkbox next to its filters. While it's ticked, you only see and
 host modded servers, with up to 16 players. Untick it to see vanilla servers and play with friends who don't have the
 mod (4 players max). Your choice is remembered.
 
-### Windows
+### Windows, with BepInEx
 
 1. **Open your game folder.** In Steam, right-click Over the Hill, then Manage, then Browse local files.
 2. **Install BepInEx.** Download
@@ -59,6 +65,21 @@ mod (4 players max). Your choice is remembered.
 5. **Play.** The host picks a Max Players above 4 under Create Server.
 
 To uninstall, delete `winhttp.dll` from the game folder.
+
+### Windows, with MelonLoader
+
+1. **Install MelonLoader 0.7.3.** Run the
+   [MelonLoader installer](https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3) and pick Over the Hill, or
+   extract `MelonLoader.x64.zip` from the same page into the game folder, so that `version.dll` sits next to
+   `over the hill.exe`.
+2. **Run the game once**, wait for the main menu, then quit. The first launch takes a few minutes longer than usual.
+3. **Install the mod.** Download `OverTheHillUnlimited-<version>-MelonLoader.zip` from
+   [Releases](https://github.com/t04glovern/over-the-hill-unlimited/releases) and extract it into the game folder.
+   You should end up with `Mods\OverTheHillUnlimited.MelonLoader.dll`. If you had the community MelonLoader port of
+   0.4.1, this replaces it: it's the same file name.
+4. **Play.** The host picks a Max Players above 4 under Create Server.
+
+To uninstall, delete `Mods\OverTheHillUnlimited.MelonLoader.dll`.
 
 ### Linux and Steam Deck
 
@@ -87,11 +108,16 @@ Desktop Mode. These steps haven't been fully tested on Linux yet.
    You should end up with `BepInEx/plugins/OverTheHillUnlimited/OverTheHillUnlimited.dll`.
 7. **Play.** The host picks a Max Players above 4 under Create Server.
 
+With MelonLoader instead, extract `MelonLoader.x64.zip` (step 3), set Launch Options to
+`WINEDLLOVERRIDES="version=n,b" %command%` (step 4), and install the MelonLoader zip of the mod (step 6).
+
 To uninstall, clear the launch option, then untick the compatibility option to go back to the native version.
 
 ## Configuration
 
-`BepInEx/config/OverTheHillUnlimited.cfg` is created on first launch.
+The settings file is created on first launch: `BepInEx/config/OverTheHillUnlimited.cfg` with BepInEx, or
+`UserData/MelonPreferences.cfg` with MelonLoader. MelonLoader keeps them all under one `[OverTheHillUnlimited]`
+section, without the `General.`, `Meteorites.` and `Debug.` prefixes below.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -314,8 +340,10 @@ which would otherwise leave a connection open with the old AppVersion.
 
 ### Prerequisites
 
-- .NET SDK 8 or newer. The project targets `net6.0`, the runtime BepInEx 6 ships with.
+- .NET SDK 8 or newer. The projects target `net6.0`, the runtime BepInEx 6 and MelonLoader 0.7 both ship with.
 - Over the Hill with BepInEx installed and launched once, so `BepInEx/interop/` exists.
+- For the MelonLoader build, a game folder with MelonLoader 0.7.3 installed and launched once, so
+  `MelonLoader/Il2CppAssemblies/` exists. A copy of the game folder keeps the two loaders apart.
 
 ### Build
 
@@ -323,11 +351,23 @@ which would otherwise leave a connection open with the old AppVersion.
 dotnet build
 ```
 
-References come straight from the game's `BepInEx/core` and `BepInEx/interop` folders, so the only package is the
-.NET reference pack. `nuget.config` adds nuget.org for it. The build copies the DLL and PDB into
-`BepInEx/plugins/OverTheHillUnlimited/`. The copy fails with a warning while the game is running, because the DLL is
-locked. If the game isn't in the default Steam location, copy `Config.Build.user.props.template` to
-`Config.Build.user.props` and set `GameDir`.
+There are two projects, one per loader, built from the same source:
+- `src/OverTheHillUnlimited` is the BepInEx build. Its references come straight from the game's `BepInEx/core` and
+  `BepInEx/interop` folders, and it copies the DLL and PDB into `BepInEx/plugins/OverTheHillUnlimited/`.
+- `src/OverTheHillUnlimited.MelonLoader` is the MelonLoader build. It compiles the BepInEx project's source, except
+  `Loader/BepInEx/`, against `MelonLoader/net6` and `MelonLoader/Il2CppAssemblies`, and copies
+  `OverTheHillUnlimited.MelonLoader.dll` into `Mods/`.
+
+The only package is the .NET reference pack; `nuget.config` adds nuget.org for it. The copies fail with a warning while
+the game is running, because the DLL is locked. If the game isn't in the default Steam location, or MelonLoader is in a
+different copy of it, copy `Config.Build.user.props.template` to `Config.Build.user.props` and set `GameDir` and
+`MelonLoaderGameDir`.
+
+The two loaders differ in only a few ways, and those live in `Plugin`'s loader half: how the mod starts, where its
+settings are stored, how it logs, and how the self-test is added. The rest is shared, apart from one naming difference.
+MelonLoader's interop assemblies prefix the game's namespaces with `Il2Cpp` (`Il2Cpp` for the global namespace,
+`Il2CppFusion`, `Il2CppFunCore`), so the shared source imports the game's namespaces through each project's global
+usings, not `using` lines in the files.
 
 ### Testing without other players
 
@@ -361,10 +401,12 @@ Launch the game with `-otu-selftest` and it tests itself:
 
 It also logs how long the expanded getters take compared with an unpatched one.
 
-Each section also fails if the game or BepInEx logged an error during it. Results go to `BepInEx/LogOutput.log` (source
-`OTU Self-test`) and to `BepInEx/OverTheHillUnlimited-selftest.txt`. Add `-otu-selftest-stay` to keep the game open
-afterwards, `-otu-selftest-area <name>` to host somewhere other than the first area, or `-otu-selftest-screenshots` to
-save screenshots of the lobby, free roam, map, pause menu and server browser to `BepInEx/OverTheHillUnlimited-screenshots/`.
+Each section also fails if the game or the mod loader logged an error during it. Results go to the loader's log (source
+`OTU Self-test`) and to `OverTheHillUnlimited-selftest.txt`: `BepInEx/LogOutput.log` and `BepInEx/` with BepInEx,
+`MelonLoader/Latest.log` and `UserData/` with MelonLoader. It runs the same on both. Add `-otu-selftest-stay` to keep the
+game open afterwards, `-otu-selftest-area <name>` to host somewhere other than the first area, or
+`-otu-selftest-screenshots` to save screenshots of the lobby, free roam, map, pause menu and server browser to
+`OverTheHillUnlimited-screenshots/` next to the results.
 
 To run it from a shell instead of Steam (Steam must still be running):
 
@@ -381,8 +423,16 @@ client would send. None of this code runs without the launch option.
 ### Project layout
 
 ```
-src/OverTheHillUnlimited/
-  Plugin.cs                           entry point, config, patch registration
+src/
+  OverTheHillUnlimited.props          shared by both projects: version, build settings
+  OverTheHillUnlimited.MelonLoader/
+    OverTheHillUnlimited.MelonLoader.csproj  the MelonLoader build of the source below
+    Plugin.MelonLoader.cs             MelonLoader's half of Plugin
+src/OverTheHillUnlimited/             the BepInEx build, and the source both builds share
+  Plugin.cs                           startup, settings, patch registration (shared half)
+  Loader/
+    BepInEx/Plugin.BepInEx.cs         BepInEx's half of Plugin
+    ModLog.cs, Setting.cs             a log and a setting on either loader
   UnlimitedMode.cs                    the modded/vanilla switch
   Networking/ExpandedState.cs         appended state layout and collection construction
   Patches/
@@ -410,20 +460,20 @@ src/OverTheHillUnlimited/
     SelfTestRunner.cs                 drives the script frame by frame
     FourSlotProbe.cs                  -otu-selftest-probe: lists every list or array still holding 4
     BotPlayers.cs                     fake players for the self-test
-    LogWatcher.cs                     collects game and BepInEx errors per test section
+    LogWatcher.cs                     collects game and mod loader errors per test section
 tools/
-  Build-Release.ps1                   build and package a release zip
+  Build-Release.ps1                   build and package the release zips
   Dump-GameCode.ps1                   dump the game's code with Cpp2IL
 ```
 
 ### Releasing
 
-1. Bump `<Version>` in `src/OverTheHillUnlimited/OverTheHillUnlimited.csproj`. The plugin's BepInEx version is generated
-   from it.
-2. Run `powershell -File tools/Build-Release.ps1`. It builds Release and writes
-   `artifacts/OverTheHillUnlimited-<version>.zip`, laid out to extract straight into the game folder.
-3. Commit and push, then publish the zip:
-   `gh release create v<version> artifacts/OverTheHillUnlimited-<version>.zip --title "v<version>" --notes "..."`
+1. Bump `<Version>` in `src/OverTheHillUnlimited.props`. Both loaders' version attributes are generated from it.
+2. Run `powershell -File tools/Build-Release.ps1` (add `-MelonLoaderGameDir <folder>` if MelonLoader is in a copy of
+   the game). It builds both in Release and writes `artifacts/OverTheHillUnlimited-<version>.zip` (BepInEx) and
+   `artifacts/OverTheHillUnlimited-<version>-MelonLoader.zip`, each laid out to extract straight into the game folder.
+3. Commit and push, then publish both zips:
+   `gh release create v<version> artifacts/OverTheHillUnlimited-<version>*.zip --title "v<version>" --notes "..."`
 
 ### Reading the game's code
 
@@ -445,7 +495,7 @@ loop shapes: a counter compared with 4, and a stride compared with an end offset
 `Add r14, r14, 8; Compare r14, 64` for 4 pointers starting at an array's 0x20 data offset.
 
 Logs:
-- The mod's output is in `BepInEx/LogOutput.log`.
+- The mod's output is in `BepInEx/LogOutput.log`, or `MelonLoader/Latest.log` with MelonLoader.
 - Exceptions thrown by game code are in `%USERPROFILE%\AppData\LocalLow\Funselektor\over the hill\Player.log`.
   Under Proton, that's
   `~/.local/share/Steam/steamapps/compatdata/2929250/pfx/drive_c/users/steamuser/AppData/LocalLow/Funselektor/over the hill/Player.log`.
@@ -482,11 +532,18 @@ Logs:
 - [x] A self-test that exercises every per-player path with bot players, without needing other people
 - [x] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
 - [x] Colours of their own for players 5 and up (Windows)
+- [x] A MelonLoader build from the same source, so players can use it alongside the game's other MelonLoader mods
+- [ ] Play across loaders with real players (BepInEx and MelonLoader players in one session)
 
 ## Credits
 
 - [PEAK Unlimited](https://github.com/glarmer/PEAK-Unlimited) by glarmer, for the idea and the project structure
-- [BepInEx](https://github.com/BepInEx/BepInEx), [Il2CppInterop](https://github.com/BepInEx/Il2CppInterop),
-  [HarmonyX](https://github.com/BepInEx/HarmonyX) and [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL)
+- [BepInEx](https://github.com/BepInEx/BepInEx), [MelonLoader](https://github.com/LavaGang/MelonLoader),
+  [Il2CppInterop](https://github.com/BepInEx/Il2CppInterop), [HarmonyX](https://github.com/BepInEx/HarmonyX) and
+  [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL)
+- The community MelonLoader port of 0.4.1 on Nexus Mods, which showed players wanted a MelonLoader version
 
-Not affiliated with Funselektor. Please don't report bugs to the game's developers while you're using mods.
+## License
+
+[MIT](LICENSE). Not affiliated with Funselektor. Please don't report bugs to the game's developers while you're using
+mods.

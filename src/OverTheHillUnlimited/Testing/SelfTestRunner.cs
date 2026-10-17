@@ -26,7 +26,7 @@ public class SelfTestRunner : MonoBehaviour
         {
             if (_test != null)
                 return;
-            _test = new SelfTest(BepInEx.Logging.Logger.CreateLogSource("OTU Self-test"));
+            _test = new SelfTest(Plugin.CreateLog(SelfTest.LogName));
             _script = _test.Run();
         }
 

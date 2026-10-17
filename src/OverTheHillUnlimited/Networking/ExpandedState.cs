@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Fusion;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes;
 using BindingFlags = Il2CppSystem.Reflection.BindingFlags;

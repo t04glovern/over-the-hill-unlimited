@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Fusion;
 using HarmonyLib;
 
 namespace OverTheHillUnlimited.Testing;
