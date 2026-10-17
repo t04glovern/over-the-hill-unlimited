@@ -1,4 +1,3 @@
-using Fusion;
 using HarmonyLib;
 using OverTheHillUnlimited.Networking;
 

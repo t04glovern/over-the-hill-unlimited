@@ -1,0 +1,45 @@
+<Project>
+    <!--
+        Shared by both builds of the mod: the BepInEx one (OverTheHillUnlimited/OverTheHillUnlimited.csproj) and the
+        MelonLoader one (OverTheHillUnlimited.MelonLoader/OverTheHillUnlimited.MelonLoader.csproj), which compiles the
+        same source.
+    -->
+    <PropertyGroup>
+        <!-- Both BepInEx 6 IL2CPP and MelonLoader 0.7 host mods on .NET 6 -->
+        <TargetFramework>net6.0</TargetFramework>
+        <CheckEolTargetFramework>false</CheckEolTargetFramework>
+
+        <RootNamespace>OverTheHillUnlimited</RootNamespace>
+        <Version>0.4.2</Version>
+
+        <LangVersion>latest</LangVersion>
+        <Nullable>disable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <DebugType>portable</DebugType>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <!-- Per-machine overrides (GameDir, MelonLoaderGameDir, DeployToGame). Copy Config.Build.user.props.template to create it. -->
+    <Import Project="$(MSBuildThisFileDirectory)..\Config.Build.user.props"
+            Condition="Exists('$(MSBuildThisFileDirectory)..\Config.Build.user.props')" />
+
+    <PropertyGroup>
+        <GameDir Condition="'$(GameDir)' == '' And '$(OS)' == 'Windows_NT'">C:\Program Files (x86)\Steam\steamapps\common\over the hill</GameDir>
+        <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT'">$(HOME)/.local/share/Steam/steamapps/common/over the hill</GameDir>
+    </PropertyGroup>
+
+    <!-- Generates PluginVersion.Value from <Version> above, so neither loader's version attribute can drift from it -->
+    <Target Name="GeneratePluginVersion" BeforeTargets="BeforeCompile;CoreCompile">
+        <PropertyGroup>
+            <PluginVersionFile>$(IntermediateOutputPath)PluginVersion.g.cs</PluginVersionFile>
+        </PropertyGroup>
+        <WriteLinesToFile File="$(PluginVersionFile)"
+                          Lines="// &lt;auto-generated/&gt; from the Version property in OverTheHillUnlimited.props;namespace OverTheHillUnlimited%3B;internal static class PluginVersion { public const string Value = &quot;$(Version)&quot;%3B }"
+                          Overwrite="true"
+                          WriteOnlyWhenDifferent="true" />
+        <ItemGroup>
+            <Compile Include="$(PluginVersionFile)" />
+            <FileWrites Include="$(PluginVersionFile)" />
+        </ItemGroup>
+    </Target>
+</Project>

@@ -1,33 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-        <!-- BepInEx 6 IL2CPP hosts plugins on its bundled .NET 6 runtime -->
-        <TargetFramework>net6.0</TargetFramework>
-        <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <!-- The BepInEx 6 (IL2CPP) build. The MelonLoader build compiles this project's source too. -->
+    <Import Project="..\OverTheHillUnlimited.props" />
 
+    <PropertyGroup>
         <AssemblyName>OverTheHillUnlimited</AssemblyName>
-        <RootNamespace>OverTheHillUnlimited</RootNamespace>
-        <Version>0.4.2</Version>
-
-        <LangVersion>latest</LangVersion>
-        <Nullable>disable</Nullable>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <DebugType>portable</DebugType>
-        <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    </PropertyGroup>
-
-    <!-- Per-machine overrides (GameDir, DeployToGame). Copy Config.Build.user.props.template to create it. -->
-    <Import Project="$(MSBuildThisFileDirectory)..\..\Config.Build.user.props"
-            Condition="Exists('$(MSBuildThisFileDirectory)..\..\Config.Build.user.props')" />
-
-    <PropertyGroup>
-        <GameDir Condition="'$(GameDir)' == '' And '$(OS)' == 'Windows_NT'">C:\Program Files (x86)\Steam\steamapps\common\over the hill</GameDir>
-        <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT'">$(HOME)/.local/share/Steam/steamapps/common/over the hill</GameDir>
         <BepInExDir>$(GameDir)\BepInEx\</BepInExDir>
         <BepInExCoreDir>$(BepInExDir)core\</BepInExCoreDir>
         <BepInExInteropDir>$(BepInExDir)interop\</BepInExInteropDir>
         <PluginDeployDir>$(BepInExDir)plugins\$(AssemblyName)\</PluginDeployDir>
     </PropertyGroup>
+
+    <!-- BepInEx's interop assemblies keep the game's own namespaces; MelonLoader's prefix them with Il2Cpp -->
+    <ItemGroup>
+        <Using Include="Fusion" />
+        <Using Include="Fusion.Photon.Realtime" />
+        <Using Include="FunCore.Managers" />
+        <Using Include="FunCore.StateMachine.State" Alias="GameState" />
+    </ItemGroup>
 
     <!-- Loader libraries: referenced straight from the installed BepInEx so versions always match -->
     <ItemGroup>
@@ -44,21 +34,6 @@
         <InteropReferences Include="$(BepInExInteropDir)*.dll" />
         <Reference Include="@(InteropReferences)" Private="false" />
     </ItemGroup>
-
-    <!-- Generates PluginVersion.Value from <Version> above, so the BepInPlugin version can't drift from it -->
-    <Target Name="GeneratePluginVersion" BeforeTargets="BeforeCompile;CoreCompile">
-        <PropertyGroup>
-            <PluginVersionFile>$(IntermediateOutputPath)PluginVersion.g.cs</PluginVersionFile>
-        </PropertyGroup>
-        <WriteLinesToFile File="$(PluginVersionFile)"
-                          Lines="// &lt;auto-generated/&gt; from the Version property in OverTheHillUnlimited.csproj;namespace OverTheHillUnlimited%3B;internal static class PluginVersion { public const string Value = &quot;$(Version)&quot;%3B }"
-                          Overwrite="true"
-                          WriteOnlyWhenDifferent="true" />
-        <ItemGroup>
-            <Compile Include="$(PluginVersionFile)" />
-            <FileWrites Include="$(PluginVersionFile)" />
-        </ItemGroup>
-    </Target>
 
     <Target Name="CheckBepInExInstalled" BeforeTargets="ResolveAssemblyReferences">
         <Error Condition="!Exists('$(BepInExCoreDir)BepInEx.Unity.IL2CPP.dll')"

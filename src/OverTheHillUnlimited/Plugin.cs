@@ -1,7 +1,3 @@
-using BepInEx;
-using BepInEx.Configuration;
-using BepInEx.Logging;
-using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using OverTheHillUnlimited.Networking;
 using OverTheHillUnlimited.Patches;
@@ -9,32 +5,38 @@ using OverTheHillUnlimited.Testing;
 
 namespace OverTheHillUnlimited;
 
-[BepInPlugin(Id, Name, Version)]
-public class Plugin : BasePlugin
+/// <summary>
+/// The mod itself, the same on either mod loader. The loader's half of this class starts it and gives it a log,
+/// settings, a data folder and the self-test: Loader/BepInEx/Plugin.BepInEx.cs in the BepInEx build, and
+/// Plugin.MelonLoader.cs in the MelonLoader build (src/OverTheHillUnlimited.MelonLoader).
+/// </summary>
+public partial class Plugin
 {
     public const string Id = "OverTheHillUnlimited";
     public const string Name = "Over the Hill Unlimited";
-    public const string Version = PluginVersion.Value; // set by <Version> in the csproj
+    public const string Version = PluginVersion.Value; // set by <Version> in OverTheHillUnlimited.props
+    public const string Author = "t04glovern";
 
     // Vanilla sessions are capped at 4, and the game's per-player networked state is sized to match
     public const int VanillaMaxPlayers = 4;
 
-    internal static ManualLogSource Logger;
-    internal static ConfigEntry<int> ConfigMaxPlayers;
-    internal static ConfigEntry<bool> ConfigExpandPlayerSlots;
-    internal static ConfigEntry<bool> ConfigVerboseLogging;
-    internal static ConfigEntry<int> ConfigPebbleShareMaxPlayers;
-    internal static ConfigEntry<int> ConfigPlayersPerExtraMeteorite;
-    internal static ConfigEntry<bool> ConfigScaleMeteoriteReach;
+    internal static IModLog Logger;
+    internal static Setting<int> ConfigMaxPlayers;
+    internal static Setting<bool> ConfigExpandPlayerSlots;
+    internal static Setting<bool> ConfigVerboseLogging;
+    internal static Setting<int> ConfigPebbleShareMaxPlayers;
+    internal static Setting<int> ConfigPlayersPerExtraMeteorite;
+    internal static Setting<bool> ConfigScaleMeteoriteReach;
 
-    private Harmony _harmony;
+    static HarmonyLib.Harmony _harmony; // qualified: MelonLoader also has a Harmony namespace
 
-    public override void Load()
+    // Called by the loader's half once it can apply patches
+    static void Start(IModLog log)
     {
-        Logger = Log;
+        Logger = log;
         BindConfig();
 
-        _harmony = new Harmony(Id);
+        _harmony = new HarmonyLib.Harmony(Id);
 
         // Always applied: the patches check UnlimitedMode at runtime, so it can be switched in the server browser
         try
@@ -69,16 +71,18 @@ public class Plugin : BasePlugin
         {
             _harmony.PatchAll(typeof(BotActivePlayersPatch));
             _harmony.PatchAll(typeof(BotPlayerObjectPatch));
-            AddComponent<SelfTestRunner>();
+            AddSelfTestRunner();
             Logger.LogWarning("Self-test mode: this run will host a session with bot players, then quit");
         }
 
         string mode = !UnlimitedMode.Available ? "unavailable" : UnlimitedMode.Enabled ? "on" : "off";
-        Logger.LogInfo($"{Name} {Version} loaded (Unlimited mode {mode}, MaxPlayers={ConfigMaxPlayers.Value}, " +
+        Logger.LogInfo($"{Name} {Version} loaded on {Loader} (Unlimited mode {mode}, MaxPlayers={ConfigMaxPlayers.Value}, " +
                        $"{ExpandedState.Capacity} player slots)");
     }
 
-    private void ApplyPlayerCapPatches()
+    static void Stop() => _harmony?.UnpatchSelf();
+
+    static void ApplyPlayerCapPatches()
     {
         // Switch Unlimited mode from a checkbox in the server browser
         _harmony.PatchAll(typeof(ServerBrowserTogglePatches));
@@ -119,18 +123,20 @@ public class Plugin : BasePlugin
         _harmony.PatchAll(typeof(ModdedLobbyPatches));
     }
 
-    private void BindConfig()
+    // The same settings on either loader. BepInEx files them under the section; MelonLoader keeps them all in one
+    // [OverTheHillUnlimited] category, so the section only groups them here.
+    static void BindConfig()
     {
-        ConfigMaxPlayers = Config.Bind(
+        ConfigMaxPlayers = BindRange(
             "General",
             "MaxPlayers",
             8,
-            new ConfigDescription(
-                $"Highest player count offered in the Create Server menu (including yourself) in Unlimited mode. " +
-                $"The vanilla 2 to {VanillaMaxPlayers} are always offered.",
-                new AcceptableValueRange<int>(VanillaMaxPlayers, ExpandedState.Capacity)));
+            VanillaMaxPlayers,
+            ExpandedState.Capacity,
+            $"Highest player count offered in the Create Server menu (including yourself) in Unlimited mode. " +
+            $"The vanilla 2 to {VanillaMaxPlayers} are always offered.");
 
-        ConfigExpandPlayerSlots = Config.Bind(
+        ConfigExpandPlayerSlots = Bind(
             "General",
             "ExpandPlayerSlots",
             true,
@@ -140,44 +146,38 @@ public class Plugin : BasePlugin
             "mod (vanilla behaviour, 4 players max). You can also switch it in game with the " +
             "\"Unlimited mod servers\" checkbox in the server browser.");
 
-        ConfigVerboseLogging = Config.Bind(
+        ConfigVerboseLogging = Bind(
             "Debug",
             "VerboseLogging",
             false,
             "Log the session size and the expanded player list as players join and leave. Useful when testing.");
 
         // The host decides meteorite rewards and spawns, so for these only the host's settings count
-        ConfigPebbleShareMaxPlayers = Config.Bind(
+        ConfigPebbleShareMaxPlayers = BindRange(
             "Meteorites",
             "PebbleShareMaxPlayers",
             VanillaMaxPlayers,
-            new ConfigDescription(
-                "A meteorite's pebbles are split between the players involved in pulling it out. With more players " +
-                "involved than this, each gets the share they'd get with this many instead. " +
-                $"{ExpandedState.Capacity} splits them between everyone, as the game does. Only the host's setting counts.",
-                new AcceptableValueRange<int>(1, ExpandedState.Capacity)));
+            1,
+            ExpandedState.Capacity,
+            "A meteorite's pebbles are split between the players involved in pulling it out. With more players " +
+            "involved than this, each gets the share they'd get with this many instead. " +
+            $"{ExpandedState.Capacity} splits them between everyone, as the game does. Only the host's setting counts.");
 
-        ConfigPlayersPerExtraMeteorite = Config.Bind(
+        ConfigPlayersPerExtraMeteorite = BindRange(
             "Meteorites",
             "PlayersPerExtraMeteorite",
             2,
-            new ConfigDescription(
-                $"The game keeps 2 or 3 meteorites in the map. With more than {VanillaMaxPlayers} players, add one for " +
-                $"every this many players past {VanillaMaxPlayers}. 0 keeps the game's 2 or 3. Only the host's setting counts.",
-                new AcceptableValueRange<int>(0, ExpandedState.Capacity)));
+            0,
+            ExpandedState.Capacity,
+            $"The game keeps 2 or 3 meteorites in the map. With more than {VanillaMaxPlayers} players, add one for " +
+            $"every this many players past {VanillaMaxPlayers}. 0 keeps the game's 2 or 3. Only the host's setting counts.");
 
-        ConfigScaleMeteoriteReach = Config.Bind(
+        ConfigScaleMeteoriteReach = Bind(
             "Meteorites",
             "ScaleRewardReach",
             true,
             $"Only cars within 10 m of a meteorite when it comes out count as involved, unless they're winched to it. " +
             $"With more than {VanillaMaxPlayers} players, widen that so the area grows with the number of cars " +
             "(14 m for 8, 20 m for 16). Only the host's setting counts.");
-    }
-
-    public override bool Unload()
-    {
-        _harmony?.UnpatchSelf();
-        return true;
     }
 }

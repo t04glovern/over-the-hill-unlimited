@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using BepInEx;
 using Il2CppInterop.Runtime;
 using UnityEngine;
 using BindingFlags = Il2CppSystem.Reflection.BindingFlags;
@@ -16,7 +15,7 @@ namespace OverTheHillUnlimited.Testing;
 /// into memory). Run with 16 players in the session, anything that should have grown with the players still shows 4.
 /// Most hits are innocent (a car's 4 wheels), so the report is for reading, not a pass/fail check. With the
 /// -otu-selftest-probe launch option, the self-test scans at each stage and writes
-/// BepInEx/OverTheHillUnlimited-probe.txt.
+/// OverTheHillUnlimited-probe.txt (in BepInEx/ or UserData/).
 /// </summary>
 internal sealed class FourSlotProbe
 {
@@ -137,6 +136,6 @@ internal sealed class FourSlotProbe
             foreach (string example in hit.Examples)
                 lines.Add($"    {example}");
         }
-        File.WriteAllLines(Path.Combine(Paths.BepInExRootPath, "OverTheHillUnlimited-probe.txt"), lines);
+        File.WriteAllLines(Path.Combine(Plugin.DataDirectory, "OverTheHillUnlimited-probe.txt"), lines);
     }
 }

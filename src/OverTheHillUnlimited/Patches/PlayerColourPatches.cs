@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Fusion;
 using HarmonyLib;
 using OverTheHillUnlimited.Networking;
 using UnityEngine;

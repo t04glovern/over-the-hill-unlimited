@@ -2,10 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using BepInEx;
-using BepInEx.Logging;
-using Fusion;
-using FunCore.Managers;
 using Il2CppInterop.Runtime;
 using OverTheHillUnlimited.Networking;
 using OverTheHillUnlimited.Patches;
@@ -42,20 +38,22 @@ internal sealed class Until
 /// checks the lobby camera sees every car, spawns everyone at the starting cabin, and drives everything that indexes
 /// per-player data: the player registry, spawn points, lobby labels, busy states, map pins, portable winch anchors and
 /// their HUD markers, meteorite setups, the compass, the car health HUD, and the map, pause, car repair and tool
-/// selection menus. Each section also fails if the game or BepInEx logged an error during it. Results go to the BepInEx
-/// log and to BepInEx/OverTheHillUnlimited-selftest.txt, and the game quits afterwards unless -otu-selftest-stay is also
-/// given. -otu-selftest-area &lt;name&gt; picks the area (default: the first one), -otu-selftest-players &lt;n&gt; the
-/// session size (default: MaxPlayers), and -otu-selftest-screenshots saves screenshots along the way.
+/// selection menus. Each section also fails if the game or the mod loader logged an error during it. Results go to the
+/// mod loader's log and to OverTheHillUnlimited-selftest.txt (in BepInEx/, or UserData/ with MelonLoader), and the
+/// game quits afterwards unless -otu-selftest-stay is also given. -otu-selftest-area &lt;name&gt; picks the area
+/// (default: the first one), -otu-selftest-players &lt;n&gt; the session size (default: MaxPlayers), and
+/// -otu-selftest-screenshots saves screenshots along the way.
 /// </summary>
 internal sealed partial class SelfTest
 {
     public const string Flag = "-otu-selftest";
+    public const string LogName = "OTU Self-test";
     const string StayFlag = "-otu-selftest-stay";
     const string AreaFlag = "-otu-selftest-area";
     const string ScreenshotsFlag = "-otu-selftest-screenshots";
     const string PlayersFlag = "-otu-selftest-players";
 
-    readonly ManualLogSource _log;
+    readonly IModLog _log;
     readonly LogWatcher _watcher;
     readonly List<string> _results = new();
     string _section = "";
@@ -65,10 +63,10 @@ internal sealed partial class SelfTest
     bool? _savedMode;
     readonly FourSlotProbe _probe = HasArgument(FourSlotProbe.Flag) ? new FourSlotProbe() : null;
 
-    public SelfTest(ManualLogSource log)
+    public SelfTest(IModLog log)
     {
         _log = log;
-        _watcher = new LogWatcher(log.SourceName);
+        _watcher = new LogWatcher(LogName);
     }
 
     public static bool Requested => HasArgument(Flag);
@@ -307,7 +305,7 @@ internal sealed partial class SelfTest
 
         Finish();
 
-        IEnumerable<object> MapSteps(FunCore.StateMachine.State _)
+        IEnumerable<object> MapSteps(GameState _)
         {
             var map = Object.FindObjectOfType<MapView>();
             Check("map is open", () => map != null);
@@ -320,7 +318,7 @@ internal sealed partial class SelfTest
         }
 
         // Rows for players 5 and up are padded clones, so check they open the player options like the game's own rows
-        IEnumerable<object> PauseMenuSteps(FunCore.StateMachine.State state)
+        IEnumerable<object> PauseMenuSteps(GameState state)
         {
             var rows = state.TryCast<StatePauseMenu>().contextUIPauseMenu.PlayerInfos;
             Check("a row for every player", () => CountActive(rows) == maxPlayers, () => $"{CountActive(rows)} rows shown");
@@ -441,17 +439,17 @@ internal sealed partial class SelfTest
 
     static OverlandSessionPlayers Players => OverlandSessionPlayers.Instance;
 
-    IEnumerable<object> OpenMenu(string name, Func<FunCore.StateMachine.State> create, Action<FunCore.StateMachine.State> check) =>
+    IEnumerable<object> OpenMenu(string name, Func<GameState> create, Action<GameState> check) =>
         OpenMenu(name, create, state =>
         {
             check(state);
             return Enumerable.Empty<object>();
         });
 
-    IEnumerable<object> OpenMenu(string name, Func<FunCore.StateMachine.State> create, Func<FunCore.StateMachine.State, IEnumerable<object>> steps)
+    IEnumerable<object> OpenMenu(string name, Func<GameState> create, Func<GameState, IEnumerable<object>> steps)
     {
         Section(name);
-        FunCore.StateMachine.State state = null;
+        GameState state = null;
         if (!Do("opens", () => GameStateManager.Instance.PushState(state = create())))
         {
             EndSection();
@@ -534,7 +532,7 @@ internal sealed partial class SelfTest
         _log.LogMessage(summary);
         try
         {
-            File.WriteAllLines(Path.Combine(Paths.BepInExRootPath, "OverTheHillUnlimited-selftest.txt"), _results);
+            File.WriteAllLines(Path.Combine(Plugin.DataDirectory, "OverTheHillUnlimited-selftest.txt"), _results);
         }
         catch (IOException e)
         {
@@ -668,13 +666,13 @@ internal sealed partial class SelfTest
         return -1;
     }
 
-    // With -otu-selftest-screenshots, saves the screen to BepInEx/OverTheHillUnlimited-screenshots. Yield the result:
+    // With -otu-selftest-screenshots, saves the screen to OverTheHillUnlimited-screenshots (in BepInEx/ or UserData/). Yield the result:
     // Unity captures at the end of the frame, so the script waits for it before changing what's on screen.
     object Screenshot(string name)
     {
         if (!HasArgument(ScreenshotsFlag))
             return null;
-        string folder = Path.Combine(Paths.BepInExRootPath, "OverTheHillUnlimited-screenshots");
+        string folder = Path.Combine(Plugin.DataDirectory, "OverTheHillUnlimited-screenshots");
         Directory.CreateDirectory(folder);
         string path = Path.Combine(folder, $"{++_screenshots:00}-{name}.png");
         ScreenCapture.CaptureScreenshot(path);

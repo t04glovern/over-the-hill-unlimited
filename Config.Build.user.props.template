@@ -1,10 +1,14 @@
 <Project>
     <!-- Copy to Config.Build.user.props (gitignored) to override per-machine settings. -->
     <PropertyGroup>
-        <!-- Game install folder (the one containing "over the hill.exe") -->
+        <!-- Game install folder (the one containing "over the hill.exe") with BepInEx installed -->
         <GameDir>C:\Program Files (x86)\Steam\steamapps\common\over the hill</GameDir>
 
-        <!-- Set to false to stop builds copying the plugin into BepInEx\plugins -->
+        <!-- Game folder with MelonLoader installed, for the MelonLoader build. Defaults to GameDir; a copy of the game
+             folder keeps the two loaders apart. -->
+        <MelonLoaderGameDir>C:\Program Files (x86)\Steam\steamapps\common\over the hill</MelonLoaderGameDir>
+
+        <!-- Set to false to stop builds copying the mod into BepInEx\plugins or Mods -->
         <DeployToGame>true</DeployToGame>
     </PropertyGroup>
 </Project>

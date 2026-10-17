@@ -1,4 +1,3 @@
-using System;
 using OverTheHillUnlimited.Networking;
 
 namespace OverTheHillUnlimited;
@@ -42,7 +41,7 @@ internal static class UnlimitedMode
     public static void Init(params ExpandedState[] layouts)
     {
         _saved = Plugin.ConfigExpandPlayerSlots.Value;
-        Plugin.ConfigExpandPlayerSlots.SettingChanged += OnSettingChanged;
+        Plugin.ConfigExpandPlayerSlots.Changed += OnSettingChanged;
 
         foreach (var layout in layouts)
         {
@@ -68,7 +67,7 @@ internal static class UnlimitedMode
             return false;
         }
 
-        Plugin.ConfigExpandPlayerSlots.Value = enabled; // BepInEx saves the config file
+        Plugin.ConfigExpandPlayerSlots.Value = enabled; // the mod loader saves the config file
         Plugin.Logger.LogInfo(enabled
             ? $"Unlimited mode on: modded servers, up to {ExpandedState.Capacity} players"
             : $"Unlimited mode off: vanilla servers, {Plugin.VanillaMaxPlayers} players");
@@ -84,7 +83,7 @@ internal static class UnlimitedMode
 
     // Changes from outside the mod, such as a config manager, would give objects spawned later in the session a
     // different layout from the other players' copies. Undo them until the session ends.
-    static void OnSettingChanged(object sender, EventArgs e)
+    static void OnSettingChanged()
     {
         bool value = Plugin.ConfigExpandPlayerSlots.Value;
         if (_reverting || value == _saved)
