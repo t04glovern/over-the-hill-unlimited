@@ -43,8 +43,8 @@ internal sealed class Until
 /// game quits afterwards unless -otu-selftest-stay is also given. -otu-selftest-area &lt;name&gt; picks the area
 /// (default: the first one), -otu-selftest-players &lt;n&gt; the session size (default: MaxPlayers), and
 /// -otu-selftest-screenshots saves screenshots along the way. -otu-selftest-areas-only runs only the checks that park
-/// the party at portals, cabins, camps and zones (SelfTest.Areas.cs), and -otu-selftest-all-zones has those check every
-/// cabin, scenic point and crate in the area.
+/// the party at portals, cabins and camps (SelfTest.Areas.cs), and -otu-selftest-all-zones has those check every
+/// cabin in the area.
 /// </summary>
 internal sealed partial class SelfTest
 {
@@ -64,6 +64,7 @@ internal sealed partial class SelfTest
     int _failed;
     int _screenshots;
     bool? _savedMode;
+    Dictionary<string, DateTime> _saveFileTimes;
     readonly FourSlotProbe _probe = HasArgument(FourSlotProbe.Flag) ? new FourSlotProbe() : null;
 
     public SelfTest(IModLog log)
@@ -80,6 +81,15 @@ internal sealed partial class SelfTest
         _savedMode = Plugin.ConfigExpandPlayerSlots.Value;
 
         Section("Setup");
+        // The run leaves the player's progress as it was (SaveIsolationPatches); prove it before hosting
+        _saveFileTimes = SaveIsolationPatches.SaveFileTimes();
+        Do("the game is asked to save", () => OverlandSaver.SaveGame());
+        if (!Check("it doesn't, so your progress stays as it was", () => SaveIsolationPatches.WrittenSince(_saveFileTimes).Count == 0,
+                () => $"written: {string.Join(", ", SaveIsolationPatches.WrittenSince(_saveFileTimes))}"))
+        {
+            Finish();
+            yield break;
+        }
         if (!Check("the game's networked layout matches the mod", () => UnlimitedMode.Available))
         {
             Finish();
@@ -110,7 +120,16 @@ internal sealed partial class SelfTest
         };
         Do($"host '{area.name}' for {maxPlayers} players", () => GameStateManager.Instance.PushState(new StateStartGame(context)));
         yield return new Until("session started", () => Players != null && Players.GetPlayerCount() >= 1, 300);
-        yield return new Until("lobby open", () => GameStateManager.Instance.PeekState()?.TryCast<StateLobbyMenu>() != null, 120);
+        // Hosting an area this profile hasn't unlocked, the lobby opens behind a notice that the session can't unlock
+        // areas; it's closed the way its one button does
+        yield return new Until("lobby open", () => GameStateManager.Instance.PeekState()?.TryCast<StateLobbyMenu>() != null ||
+                                                   GameStateManager.Instance.PeekState()?.TryCast<StateNoAreaUnlockModal>() != null, 120);
+        if (GameStateManager.Instance.PeekState()?.TryCast<StateNoAreaUnlockModal>() != null)
+        {
+            Record($"INFO {_section}: this profile hasn't unlocked '{area.name}', so the game says this session can't unlock areas");
+            Do("that notice is closed", () => GameStateManager.Instance.PopState());
+            yield return new Until("lobby open", () => GameStateManager.Instance.PeekState()?.TryCast<StateLobbyMenu>() != null, 30);
+        }
         yield return new Wait(3);
         EndSection();
 
@@ -199,12 +218,15 @@ internal sealed partial class SelfTest
         Do($"host picks '{start.name}' on the map", () => GameStateManager.Instance.PeekState().TryCast<StateMapScreen>().MapControllerOnRequestSpawn(start));
         yield return new Until("host spawned in the map", () => Players.SpawnedInMap(runner.LocalPlayer), 60);
         int startIndex = SceneReferences.Instance.pointsOfInterest.IndexOf(start);
+        StopBots(runner, AllPlayers(runner));
         Do("bots spawn there too", () => bots.ForEach(bot => SpawnManager.Instance.RPC_RespawnPlayer(bot, startIndex)));
-        yield return new Wait(5);
+        yield return new Wait(LandingTime);
+        foreach (var step in CheckLanding(runner, AllPlayers(runner), start))
+            yield return step;
         Check("the lobby has closed", () => !StateLobbyMenu.IsInLobby);
         Check("every player spawned in the map", () => AllPlayers(runner).All(p => Players.SpawnedInMap(p)),
             () => string.Join(", ", AllPlayers(runner).Where(p => !Players.SpawnedInMap(p)).Select(p => Players.GetPlayerName(p))));
-        Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < 60),
+        Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < NearPlace),
             () => string.Join(", ", AllPlayers(runner).Select(p => $"{Players.GetPlayerName(p)} {Vector3.Distance(CarPosition(runner, p), start.transform.position):F0} m")));
         Check($"'{start.name}' has a spawn point for every player, a car's length apart", () => SpawnSpacing(start, AllPlayers(runner).Count) >= MinSpawnSpacing,
             () => $"{start.spawnPoints.Count} spawn points, closest {SpawnSpacing(start, AllPlayers(runner).Count):F1} m apart");
@@ -307,6 +329,7 @@ internal sealed partial class SelfTest
         }
         yield return new Wait(3);
         Check("only the host is left", () => Players.GetPlayerCount() == 1, () => $"{Players.GetPlayerCount()} registered");
+        Check("the group rule is off", () => !PartyGatheringPatches.Active);
         EndSection();
 
         Section("Back to the main menu");
@@ -457,6 +480,7 @@ internal sealed partial class SelfTest
         Check("Fusion's default player count is back to the vanilla 4",
             () => NetworkProjectConfig.Global.Simulation.PlayerCount == Plugin.VanillaMaxPlayers,
             () => $"{NetworkProjectConfig.Global.Simulation.PlayerCount}");
+        Check("the group rule is off", () => !PartyGatheringPatches.Active);
         EndSection();
     }
 
@@ -565,6 +589,15 @@ internal sealed partial class SelfTest
 
     void Finish()
     {
+        PartyGatheringPatches.GameRulesOnly = false;
+
+        if (_saveFileTimes != null)
+        {
+            _section = "Your progress";
+            Record($"INFO {_section}: the game tried to save {SaveIsolationPatches.SkippedSaves} times during the run, and didn't");
+            Check("no file in the save folder was written", () => SaveIsolationPatches.WrittenSince(_saveFileTimes).Count == 0,
+                () => $"written: {string.Join(", ", SaveIsolationPatches.WrittenSince(_saveFileTimes))}");
+        }
         string summary = _failed == 0 ? $"Self-test PASSED: {_passed} checks" : $"Self-test FAILED: {_failed} of {_passed + _failed} checks failed";
         _results.Add(summary);
         _log.LogMessage(summary);
@@ -572,14 +605,12 @@ internal sealed partial class SelfTest
         {
             File.WriteAllLines(Path.Combine(Plugin.DataDirectory, "OverTheHillUnlimited-selftest.txt"), _results);
         }
-        catch (IOException e)
+        catch (Exception e)
         {
             _log.LogWarning($"Couldn't write the results file: {e.Message}");
         }
         _probe?.Write();
         _watcher.Dispose();
-        BotPlayers.HostSitsOut = false;
-        PartyGatheringPatches.SittingOut = null;
 
         // Put the player's saved Unlimited mode back. If the run stopped mid-session, that's only allowed because the
         // game is about to quit.
@@ -625,6 +656,10 @@ internal sealed partial class SelfTest
     // Spawn points a car's length apart, so nobody arrives on top of anyone else. Where the cars end up after landing
     // depends on physics, so that's only reported.
     const float MinSpawnSpacing = 4f;
+
+    // A car spawned at a place is no further from its middle than the spawn points CabinSpawnPointPatches adds, plus how
+    // far the game's own are from the middle
+    const float NearPlace = CabinSpawnPointPatches.MaxReach + 30;
 
     // The closest two of the spawn points the first n players would be given
     static float SpawnSpacing(SpawnablePointOfInterest pointOfInterest, int players)

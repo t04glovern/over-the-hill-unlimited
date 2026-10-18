@@ -28,7 +28,6 @@ public partial class Plugin
     internal static Setting<int> ConfigPlayersPerExtraMeteorite;
     internal static Setting<bool> ConfigScaleMeteoriteReach;
     internal static Setting<bool> ConfigGatherAsGroup;
-    internal static Setting<bool> ConfigScaleReachZones;
 
     static HarmonyLib.Harmony _harmony; // qualified: MelonLoader also has a Harmony namespace
 
@@ -65,6 +64,12 @@ public partial class Plugin
             Logger.LogError($"Couldn't check the game's networked layout, so Unlimited mode is off.\n{e}");
         }
 
+        // Room for the whole party where everyone has to gather (portals, cabin camping, the camp tool), and a meteorite
+        // reach ring that shows the widened reach. Neither is needed to play, so if a game update breaks one, it's left
+        // out and the rest of the mod carries on.
+        ApplyOptionalPatches(typeof(PartyGatheringPatches), "gathering the party as one group");
+        ApplyOptionalPatches(typeof(MeteoriteReachRingPatches), "the meteorite reach ring");
+
         if (ConfigVerboseLogging.Value)
             _harmony.PatchAll(typeof(SessionDiagnosticsPatches));
 
@@ -73,6 +78,7 @@ public partial class Plugin
         {
             _harmony.PatchAll(typeof(BotActivePlayersPatch));
             _harmony.PatchAll(typeof(BotPlayerObjectPatch));
+            _harmony.PatchAll(typeof(SaveIsolationPatches));
             AddSelfTestRunner();
             Logger.LogWarning("Self-test mode: this run will host a session with bot players, then quit");
         }
@@ -82,7 +88,29 @@ public partial class Plugin
                        $"{ExpandedState.Capacity} player slots)");
     }
 
-    static void Stop() => _harmony?.UnpatchSelf();
+    static void Stop()
+    {
+        _harmony?.UnpatchSelf();
+        _optionalPatches.ForEach(patches => patches.UnpatchSelf());
+    }
+
+    static readonly System.Collections.Generic.List<HarmonyLib.Harmony> _optionalPatches = new();
+
+    // Applies one class's patches, or none of them
+    static void ApplyOptionalPatches(System.Type patches, string feature)
+    {
+        var applied = new HarmonyLib.Harmony($"{Id}.{patches.Name}");
+        try
+        {
+            applied.PatchAll(patches);
+            _optionalPatches.Add(applied);
+        }
+        catch (System.Exception e)
+        {
+            applied.UnpatchSelf();
+            Logger.LogWarning($"Couldn't apply {feature}, so it's off. The game has probably been updated.\n{e}");
+        }
+    }
 
     static void ApplyPlayerCapPatches()
     {
@@ -113,11 +141,6 @@ public partial class Plugin
 
         // Balance meteorites for more than 4 players: the 4-player share of pebbles, more meteorites, a wider reach
         _harmony.PatchAll(typeof(MeteoriteBalancePatches));
-
-        // Room for every car where the whole party has to gather (portals, cabin camping, the camp tool), and wider
-        // zones for scenic points, crates, cabins and merchants
-        _harmony.PatchAll(typeof(PartyGatheringPatches));
-        _harmony.PatchAll(typeof(ReachZonePatches));
 
         // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));
@@ -185,24 +208,18 @@ public partial class Plugin
             true,
             $"Only cars within 10 m of a meteorite when it comes out count as involved, unless they're winched to it. " +
             $"With more than {VanillaMaxPlayers} players, widen that so the area grows with the number of cars " +
-            "(14 m for 8, 20 m for 16). Only the host's setting counts.");
+            "(14 m for 8, 20 m for 16), and show it in the ring around the meteorite. Only the host's setting decides " +
+            "the reward.");
 
         ConfigGatherAsGroup = Bind(
             "Areas",
             "GatherAsGroup",
             true,
-            "To travel to another area every car has to be at the portal (such as the boat), to camp at a cabin every " +
+            "To travel to another area every car has to be at the portal (the boat's holds 4), to camp at a cabin every " +
             "car has to be in its camping area, and to camp anywhere else every car has to be within 15 m of the " +
-            $"campfire. Each of these fits about {VanillaMaxPlayers} cars. With more than {VanillaMaxPlayers} players, " +
-            $"the party also counts as there once it's gathered as one group: every car within " +
-            $"{PartyGatheringPatches.LinkDistance:F0} m of another, and at least one of them in the area.");
-
-        ConfigScaleReachZones = Bind(
-            "Areas",
-            "ScaleReachZones",
-            true,
-            "The zones that count you as reaching a scenic point, crate, cabin or merchant fit a few cars. With more " +
-            $"than {VanillaMaxPlayers} players, they grow with the number of cars (1.4 times as wide for 8 players, twice " +
-            "for 16), along with the markers on the ground and a meteorite's reach ring.");
+            $"camper. With more than {VanillaMaxPlayers} players, the party also counts as there once it's gathered as " +
+            $"one group: every car in the area, or linked to it by a chain of cars each within " +
+            $"{PartyGatheringPatches.LinkDistance:F0} m of the next. Whoever presses Interact still has to be in the area. Travel goes by this setting for both the " +
+            "player who presses and the host; camping goes by the camper's.");
     }
 }

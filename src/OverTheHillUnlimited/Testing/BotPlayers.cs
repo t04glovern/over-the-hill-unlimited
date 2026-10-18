@@ -15,12 +15,6 @@ internal static class BotPlayers
     public static IReadOnlyList<PlayerRef> All => Bots;
 
     /// <summary>
-    /// Leaves the host out of NetworkRunner.ActivePlayers, so a party check counts only the bots. The self-test sets it
-    /// while it parks the party at points of interest, to keep the host's car (the real profile) away from them.
-    /// </summary>
-    public static bool HostSitsOut;
-
-    /// <summary>
     /// Joins a bot the way OverlandNetworkRunner.OnRuntimePlayerReceived joins a real client: SpawnPlayerInLobby
     /// registers the player, picks their spawn point and spawns their car. The bot copies the host's car and upgrades.
     /// </summary>
@@ -112,12 +106,8 @@ public class BotActivePlayersPatch
         var players = new Il2CppSystem.Collections.Generic.List<PlayerRef>();
         var enumerator = __result.GetEnumerator();
         var untyped = enumerator.Cast<Il2CppSystem.Collections.IEnumerator>();
-        var host = OverlandNetworkRunner.Instance?.NetworkRunner?.LocalPlayer;
         while (untyped.MoveNext())
-        {
-            if (!BotPlayers.HostSitsOut || host == null || enumerator.Current.RawEncoded != host.Value.RawEncoded)
-                players.Add(enumerator.Current);
-        }
+            players.Add(enumerator.Current);
         foreach (var bot in BotPlayers.All)
             players.Add(bot);
 
