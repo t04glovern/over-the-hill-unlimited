@@ -27,6 +27,8 @@ public partial class Plugin
     internal static Setting<int> ConfigPebbleShareMaxPlayers;
     internal static Setting<int> ConfigPlayersPerExtraMeteorite;
     internal static Setting<bool> ConfigScaleMeteoriteReach;
+    internal static Setting<bool> ConfigGatherAsGroup;
+    internal static Setting<bool> ConfigScaleReachZones;
 
     static HarmonyLib.Harmony _harmony; // qualified: MelonLoader also has a Harmony namespace
 
@@ -112,6 +114,11 @@ public partial class Plugin
         // Balance meteorites for more than 4 players: the 4-player share of pebbles, more meteorites, a wider reach
         _harmony.PatchAll(typeof(MeteoriteBalancePatches));
 
+        // Room for every car where the whole party has to gather (portals, cabin camping, the camp tool), and wider
+        // zones for scenic points, crates, cabins and merchants
+        _harmony.PatchAll(typeof(PartyGatheringPatches));
+        _harmony.PatchAll(typeof(ReachZonePatches));
+
         // Pad UIs with one element per player (lobby labels, pause menu, map, repair/tool menus, HUD markers)
         _harmony.PatchAll(typeof(PerPlayerUiPatches));
 
@@ -179,5 +186,23 @@ public partial class Plugin
             $"Only cars within 10 m of a meteorite when it comes out count as involved, unless they're winched to it. " +
             $"With more than {VanillaMaxPlayers} players, widen that so the area grows with the number of cars " +
             "(14 m for 8, 20 m for 16). Only the host's setting counts.");
+
+        ConfigGatherAsGroup = Bind(
+            "Areas",
+            "GatherAsGroup",
+            true,
+            "To travel to another area every car has to be at the portal (such as the boat), to camp at a cabin every " +
+            "car has to be in its camping area, and to camp anywhere else every car has to be within 15 m of the " +
+            $"campfire. Each of these fits about {VanillaMaxPlayers} cars. With more than {VanillaMaxPlayers} players, " +
+            $"the party also counts as there once it's gathered as one group: every car within " +
+            $"{PartyGatheringPatches.LinkDistance:F0} m of another, and at least one of them in the area.");
+
+        ConfigScaleReachZones = Bind(
+            "Areas",
+            "ScaleReachZones",
+            true,
+            "The zones that count you as reaching a scenic point, crate, cabin or merchant fit a few cars. With more " +
+            $"than {VanillaMaxPlayers} players, they grow with the number of cars (1.4 times as wide for 8 players, twice " +
+            "for 16), along with the markers on the ground and a meteorite's reach ring.");
     }
 }

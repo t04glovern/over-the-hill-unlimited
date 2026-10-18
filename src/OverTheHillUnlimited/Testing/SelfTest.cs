@@ -42,7 +42,9 @@ internal sealed class Until
 /// mod loader's log and to OverTheHillUnlimited-selftest.txt (in BepInEx/, or UserData/ with MelonLoader), and the
 /// game quits afterwards unless -otu-selftest-stay is also given. -otu-selftest-area &lt;name&gt; picks the area
 /// (default: the first one), -otu-selftest-players &lt;n&gt; the session size (default: MaxPlayers), and
-/// -otu-selftest-screenshots saves screenshots along the way.
+/// -otu-selftest-screenshots saves screenshots along the way. -otu-selftest-areas-only runs only the checks that park
+/// the party at portals, cabins, camps and zones (SelfTest.Areas.cs), and -otu-selftest-all-zones has those check every
+/// cabin, scenic point and crate in the area.
 /// </summary>
 internal sealed partial class SelfTest
 {
@@ -52,6 +54,7 @@ internal sealed partial class SelfTest
     const string AreaFlag = "-otu-selftest-area";
     const string ScreenshotsFlag = "-otu-selftest-screenshots";
     const string PlayersFlag = "-otu-selftest-players";
+    const string AreasOnlyFlag = "-otu-selftest-areas-only";
 
     readonly IModLog _log;
     readonly LogWatcher _watcher;
@@ -208,6 +211,14 @@ internal sealed partial class SelfTest
         Record($"INFO {_section}: after landing, the closest two cars are {ClosestCars(runner):F1} m apart");
         EndSection();
 
+        if (HasArgument(AreasOnlyFlag))
+        {
+            foreach (var step in TestGatheringAreas(runner, OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position))
+                yield return step;
+            Finish();
+            yield break;
+        }
+
         Section("Free roam");
         var origin = OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position;
         Do("every player places a map pin", () =>
@@ -280,6 +291,8 @@ internal sealed partial class SelfTest
         foreach (var step in TestCampTents(maxPlayers, origin))
             yield return step;
         foreach (var step in TestVoiceChatSlots())
+            yield return step;
+        foreach (var step in TestGatheringAreas(runner, origin))
             yield return step;
         // Last in the world: it replaces every car, the host's included
         foreach (var step in TestPortalArrival(runner))
@@ -565,6 +578,8 @@ internal sealed partial class SelfTest
         }
         _probe?.Write();
         _watcher.Dispose();
+        BotPlayers.HostSitsOut = false;
+        PartyGatheringPatches.SittingOut = null;
 
         // Put the player's saved Unlimited mode back. If the run stopped mid-session, that's only allowed because the
         // game is about to quit.
