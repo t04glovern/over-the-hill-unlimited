@@ -124,16 +124,8 @@ internal sealed partial class SelfTest
         // At a cabin, first where the game puts everyone respawning there: its own spawn points, padded for the rest
         if (cabin != null)
         {
-            // One after another, as players do: the game finds the next free spawn point by whether a car is on it,
-            // which only shows a car moved there after the next physics step, and the party's cars can still be
-            // parked on some of them
-            int index = SceneReferences.Instance.pointsOfInterest.IndexOf(cabin);
-            StopBots(runner, players);
-            foreach (var player in players)
-            {
-                Do($"{Players.GetPlayerName(player)} respawns there", () => SpawnManager.Instance.RPC_RespawnPlayer(player, index));
-                yield return new Wait(RespawnGap);
-            }
+            foreach (var step in SpawnOneByOne(runner, players, SceneReferences.Instance.pointsOfInterest.IndexOf(cabin)))
+                yield return step;
             yield return new Wait(LandingTime);
             if (!Check("every car is there", () => players.All(p => Vector3.Distance(CarPosition(runner, p), cabin.transform.position) < NearPlace),
                     () => string.Join(", ", players.Select(p => $"{Players.GetPlayerName(p)} {Vector3.Distance(CarPosition(runner, p), cabin.transform.position):F0} m"))))
@@ -555,27 +547,29 @@ internal sealed partial class SelfTest
             Record($"INFO {_section}: without a handbrake, these bots' cars rolled or tipped after landing: {string.Join(", ", rolled)}");
     }
 
-    // Spawning at a place moves a player's car from where it is now, and a bot's car, with no handbrake, is often still
-    // rolling, in the lobby or from the last layout. A player's idle car would be standing still, so the bots' cars are
-    // stopped first; how fast they were going is reported.
-    void StopBots(NetworkRunner runner, List<PlayerRef> players)
+    // Spawns players at a place through the game's respawn RPC, one after another, as players do: the game finds the
+    // next free spawn point by whether a car is on it, which only shows a car moved there after the next physics step,
+    // and the party's cars can still be parked on some of them. Spawning moves a player's car from where it is now, and
+    // a bot's car, with no handbrake, is often still rolling, in the lobby or from the last layout; a player's idle car
+    // would be standing still, so each bot's car is stopped just before it spawns, and how fast it was going reported.
+    IEnumerable<object> SpawnOneByOne(NetworkRunner runner, List<PlayerRef> players, int place)
     {
         var moving = new List<string>();
         foreach (var player in players)
         {
-            if (player == runner.LocalPlayer)
-                continue;
-            var car = CarOf(runner, player);
-            var body = car != null ? car.GetComponent<Rigidbody>() : null;
-            if (body == null || body.isKinematic)
-                continue;
-            if (body.linearVelocity.magnitude > 1 || body.angularVelocity.magnitude > 1)
-                moving.Add($"{Players.GetPlayerName(player)} {body.linearVelocity.magnitude:F1} m/s, turning {body.angularVelocity.magnitude:F1} rad/s");
-            body.linearVelocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
+            if (player != runner.LocalPlayer && CarOf(runner, player) is { } car && car.GetComponent<Rigidbody>() is { } body &&
+                !body.isKinematic)
+            {
+                if (body.linearVelocity.magnitude > 1 || body.angularVelocity.magnitude > 1)
+                    moving.Add($"{Players.GetPlayerName(player)} {body.linearVelocity.magnitude:F1} m/s, turning {body.angularVelocity.magnitude:F1} rad/s");
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+            }
+            Do($"{Players.GetPlayerName(player)} spawns there", () => SpawnManager.Instance.RPC_RespawnPlayer(player, place));
+            yield return new Wait(RespawnGap);
         }
         if (moving.Count > 0)
-            Record($"INFO {_section}: stopped these bots' cars, still moving from before: {string.Join(", ", moving)}");
+            Record($"INFO {_section}: stopped these bots' cars just before they spawned, still moving from before: {string.Join(", ", moving)}");
     }
 
     // The gap between players respawning, how long a car takes to drop onto its spawn point and settle, and how long the

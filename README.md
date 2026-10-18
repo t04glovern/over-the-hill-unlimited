@@ -249,21 +249,27 @@ the end, puts cars on top of each other, or drops players. Each gets room for 16
 - Each place players spawn in the map, such as a cabin, has a few spawn points (4 at the starting cabin). Once they're
   taken, `SpawnablePointOfInterest.GetNextFreeSpawnPoint` puts everyone else on the first one, on top of whoever is
   there, which is every player from the 5th on when a session starts. `CabinSpawnPointPatches` adds spawn points
-  around the game's own the first time each place is used. These places sit among trees and rocks, so each extra spot
-  must be fairly level (15° at most, so a car across the slope doesn't tip as it lands), a car's width beside and a
-  car's length ahead of the others, out of the 12 m a car on a slope above it would roll down, clear of anything
-  solid, and dry. It stands on the terrain, or, where the game's own spot is on a dock, deck or bridge, on one at
-  about its height; never on a rock or a roof, and never under water. Each
-  car is placed upright, at its own spot's height above the ground (0.3 to 1.5 m), found from just above the game's
-  spot so a roof or a tunnel's ceiling over it doesn't count. A car with nobody driving rolls a few metres after landing on a slope, so a spot also needs room
-  to roll: no water within 10 m, no ground there falling away more steeply than about 20°, and on a slope nothing
-  solid in the 12 m downhill, any of which would tip it over. Up to 0.4.4 spots were measured from the terrain, which
-  under the Valley's boat is the lakebed, so players 5 to 16 arriving by boat landed in the lake. Now the boat keeps
-  the game's own 4 spots and everyone else lands on the shore. Where there aren't enough spots with room to roll
-  (among rocks, on a small plateau), it takes spots without, though never at the brink of a drop, where a car
-  bouncing as it lands goes over the edge; and then fills any slots still empty with rows in front of and
-  behind the game's own points: on dry ground where there's some, and only then anywhere. A car that might roll is
-  better than one dropped on top of another.
+  around the game's own the first time each place is used, out to about 105 m. These places sit among trees and
+  rocks, so each extra spot is checked:
+  - fairly level (15° at most, so a car across the slope doesn't tip as it lands), and a car's width beside and a
+    car's length ahead of every other spot;
+  - on the terrain, or, where the game's own spot is on a dock, deck or bridge, on one at about its height; never on
+    a rock or a roof, and never under water;
+  - clear of anything solid around the car, with open sky above it (a rock's collider is a mesh, which a box inside a
+    big boulder doesn't touch);
+  - not at the brink of a drop, where a car bouncing as it lands goes over the edge.
+
+  Each car is placed upright, at its own spot's height above the ground (0.3 to 1.5 m), found from just above the
+  game's spot so a roof or a tunnel's ceiling over it doesn't count. A car with nobody driving rolls a few metres
+  after landing on a slope, so spots with room to roll come first: no water within 10 m, no ground there falling away
+  more steeply than about 20°, nothing solid in the 12 m downhill, and no other spot there. Where those run out
+  (among rocks, on a small plateau), it takes spots without, and then fills any slots still empty with rows in front
+  of and behind the game's own spots: on clear, dry ground where there's some, and only then anywhere. A car that
+  might roll is better than one dropped on top of another.
+
+  Up to 0.4.4 spots were measured from the terrain, which under the Valley's boat is the lakebed, so players 5 to 16
+  arriving by boat landed in the lake. Now the boat keeps the game's own 4 spots and everyone else lands on the
+  shore.
 - Portals have 4 spawn points too, and arriving through one is worse: `Portal.AssignPlayersToSpawnPoints` gives each
   player the spawn point at their position in `ActivePlayers` and skips anyone past the end, who then has no car and
   can't respawn. `CabinSpawnPointPatches` pads portals before that, the same way.
@@ -436,11 +442,12 @@ Launch the game with `-otu-selftest` and it tests itself:
 3. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default, or
    `-otu-selftest-players <n>`).
 4. In the lobby, it checks that every car can be seen from the lobby camera, not out of view or hidden behind another
-   car. Then everyone spawns at the area's starting cabin the way players do (the host through the map's spawn
-   request), and it checks that the cabin has a spawn point for every player, a car's length apart, and that every
-   car landed on dry ground and on its wheels. How far apart the cars end up after landing depends on physics, so
-   that's only logged, as is how far the bots' cars roll afterwards: a real player's idle car holds still on its
-   automatic handbrake, but a bot sends no input, so its car rolls freely on a slope.
+   car. Then everyone spawns at the area's starting cabin the way players do (each bot through the spawn request its
+   client would send, one after another, then the host through the map), and it checks that the cabin has a spawn
+   point for every player, a car's length apart, and that every car landed on dry ground, on its wheels, and not on
+   top of another. How far apart the cars end up after landing depends on physics, so that's only logged, as is how
+   far the bots' cars roll afterwards: a real player's idle car holds still on its automatic handbrake, but a bot
+   sends no input, so its car rolls freely on a slope (and is stopped before it spawns anywhere).
 5. It exercises everything else that indexes per-player data: the player registry, name labels, busy states, map
    pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD, and the map,
    pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks that their

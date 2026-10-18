@@ -204,25 +204,30 @@ internal sealed partial class SelfTest
         EndSection();
 
         Section("Spawn in the map");
-        // The way players leave the lobby: Join opens the map, and picking a spawnable point of interest raises
-        // StateMapScreen.ReadyToSpawn, which spawns the local car there and closes the lobby. Bots have no client of
-        // their own, so the host spawns them through the same RPC their client would send.
+        // Bots have no client of their own, so the host spawns them through the same RPC their client would send, one
+        // after another while their cars are still in the lobby, as players who join before the host do: once the host
+        // leaves the lobby, the cars left in it fall. Then the host leaves the lobby the way players do: Join opens the
+        // map, and picking a spawnable point of interest raises StateMapScreen.ReadyToSpawn, which spawns the local car
+        // there and closes the lobby.
         var start = FindStartingPoint();
         if (!Check("a point of interest to start at", () => start != null))
         {
             Finish();
             yield break;
         }
+        int startIndex = SceneReferences.Instance.pointsOfInterest.IndexOf(start);
+        foreach (var step in SpawnOneByOne(runner, bots, startIndex))
+            yield return step;
+        yield return new Wait(LandingTime);
+        foreach (var step in CheckLanding(runner, bots, start))
+            yield return step;
         Do("Join opens the map", () => GameStateManager.Instance.PushState(new StateMapScreen()));
         yield return new Wait(3);
         Do($"host picks '{start.name}' on the map", () => GameStateManager.Instance.PeekState().TryCast<StateMapScreen>().MapControllerOnRequestSpawn(start));
         yield return new Until("host spawned in the map", () => Players.SpawnedInMap(runner.LocalPlayer), 60);
-        int startIndex = SceneReferences.Instance.pointsOfInterest.IndexOf(start);
-        StopBots(runner, AllPlayers(runner));
-        Do("bots spawn there too", () => bots.ForEach(bot => SpawnManager.Instance.RPC_RespawnPlayer(bot, startIndex)));
         yield return new Wait(LandingTime);
-        foreach (var step in CheckLanding(runner, AllPlayers(runner), start))
-            yield return step;
+        Check("the host's car landed on its wheels", () => Tilt(runner, runner.LocalPlayer) < MaxLandedTilt,
+            () => $"tilted {Tilt(runner, runner.LocalPlayer):F0}°");
         Check("the lobby has closed", () => !StateLobbyMenu.IsInLobby);
         Check("every player spawned in the map", () => AllPlayers(runner).All(p => Players.SpawnedInMap(p)),
             () => string.Join(", ", AllPlayers(runner).Where(p => !Players.SpawnedInMap(p)).Select(p => Players.GetPlayerName(p))));

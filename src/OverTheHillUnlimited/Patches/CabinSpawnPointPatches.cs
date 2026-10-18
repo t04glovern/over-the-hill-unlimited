@@ -17,12 +17,12 @@ namespace OverTheHillUnlimited.Patches;
 /// points.
 ///
 /// A spot stands on the terrain, or, where the game's own spawn point is on a dock, deck or bridge, on one at about its
-/// height; never on a rock ledge or a roof. Never under water: the Valley's portal is a boat at the end of a one-car-wide dock,
-/// its spawn points on the deck and the dock's end, and measuring from the lakebed put the rest of the party in the
-/// lake. The search reaches far enough to find the shore from there. A car with nobody driving rolls a few metres after
-/// landing on a slope, so a spot also needs room to roll: dry ground all around it that doesn't fall away steeply, back
-/// from the water's edge and from the top of a drop, nothing solid in the way downhill, and no other spot there. So the
-/// boat keeps only the game's own spawn points, and the rest of the party lands on the shore.
+/// height; never on a rock ledge or a roof. Never under water: the Valley's portal is a boat at the end of a
+/// one-car-wide dock, its spawn points on the deck and the dock's end, and measuring from the lakebed put the rest of
+/// the party in the lake. The search reaches far enough to find the shore from there. A car with nobody driving rolls a
+/// few metres after landing on a slope, so a spot also needs room to roll: dry ground all around it that doesn't fall
+/// away steeply, back from the water's edge and from the top of a drop, nothing solid in the way downhill, and no other
+/// spot there. So the boat keeps only the game's own spawn points, and the rest of the party lands on the shore.
 ///
 /// Where those run out, among rocks or on a small plateau, the search takes spots without room to roll (though still
 /// not at the brink of a drop, where a car bouncing as it lands goes over the edge), and then any slots still empty
@@ -457,16 +457,41 @@ public class CabinSpawnPointPatches
         return along > 0 && along < RollDistance && across < SpacingAcross;
     }
 
-    // Anything but terrain where the car would stand: trees, rocks, buildings, other cars
+    // Anything but terrain where the car would stand: trees, rocks, buildings, other cars. A rock's collider is usually
+    // a mesh, which an overlap only finds where the box crosses its surface, so a box inside a big boulder looks clear;
+    // so the spot also needs open sky, nothing over its middle or corners
     static bool IsBlocked(Vector3 ground, Quaternion rotation)
     {
         var centre = ground + Vector3.up * (BoxClearance + ClearHalfSize.y);
         var colliders = Physics.OverlapBox(centre, ClearHalfSize, rotation, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
         foreach (var collider in colliders)
         {
-            if (collider != null && collider.TryCast<TerrainCollider>() == null && collider.gameObject.layer != _waterLayer)
+            if (IsObstacle(collider))
                 return true;
+        }
+        foreach (var point in SkyPoints)
+        {
+            var top = ground + rotation * point + Vector3.up * OpenSky;
+            foreach (var hit in Physics.RaycastAll(top, Vector3.down, OpenSky - BoxClearance, Physics.DefaultRaycastLayers,
+                         QueryTriggerInteraction.Ignore))
+            {
+                if (IsObstacle(hit.collider))
+                    return true;
+            }
         }
         return false;
     }
+
+    // How high above a spot there has to be nothing, over its middle and the corners of its clear box
+    const float OpenSky = 15f;
+
+    static readonly Vector3[] SkyPoints =
+    {
+        Vector3.zero,
+        new(-ClearHalfSize.x, 0, -ClearHalfSize.z), new(ClearHalfSize.x, 0, -ClearHalfSize.z),
+        new(-ClearHalfSize.x, 0, ClearHalfSize.z), new(ClearHalfSize.x, 0, ClearHalfSize.z),
+    };
+
+    static bool IsObstacle(Collider collider) =>
+        collider != null && collider.TryCast<TerrainCollider>() == null && collider.gameObject.layer != _waterLayer;
 }
