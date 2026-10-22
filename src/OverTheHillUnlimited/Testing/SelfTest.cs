@@ -223,6 +223,15 @@ internal sealed partial class SelfTest
         yield return new Wait(3);
         Check("a map pin for every player", () => MapNetworkManager.Instance.PlayerRefToPinpointPosition.Count == maxPlayers,
             () => $"{MapNetworkManager.Instance.PlayerRefToPinpointPosition.Count} pins");
+        if (PlayerColourPatches.Supported)
+        {
+            Check("a flare shows at every pin", () => PinFlares(runner).Count(f => f.Shown) == maxPlayers,
+                () => $"{PinFlares(runner).Count(f => f.Shown)} shown of {PinFlares(runner).Count}");
+            Check("players 5 and up have flares in their own colours", () => OffColourFlares(runner).Count == 0,
+                () => string.Join("; ", OffColourFlares(runner)));
+            Check("no two flares share a colour", () => PinFlares(runner).Select(f => f.Colour).Distinct().Count() == PinFlares(runner).Count,
+                () => string.Join(", ", PinFlares(runner).Select(f => $"{Players.GetPlayerName(f.Player)}={f.Colour}")));
+        }
         Check("a winch anchor for every bot", () => MapNetworkManager.Instance.PlayerRefToPortableWinchAnchorNetworkObject.Count == bots.Count,
             () => $"{MapNetworkManager.Instance.PlayerRefToPortableWinchAnchorNetworkObject.Count} anchors");
         Do("HUD winch anchor markers update", () => HUDManager.Instance.OnPortableWinchAnchorsChanged());
@@ -690,6 +699,59 @@ internal sealed partial class SelfTest
         }
         return -1;
     }
+
+    // The flare at each player's map pin, with the colour of its light. WorldSpacePinpoint finds its owner the same
+    // way, by looking for its NetworkObject in the map's pins.
+    static List<(PlayerRef Player, int Slot, GameObject Flare, Color Colour, bool Shown)> PinFlares(NetworkRunner runner)
+    {
+        var pinObjects = MapNetworkManager.Instance.PlayerRefToPinpointNetworkObject;
+        var flares = new List<(PlayerRef, int, GameObject, Color, bool)>();
+        foreach (var pin in Object.FindObjectsOfType<WorldSpacePinpoint>())
+        {
+            var flare = pin.currentFlareGameObject;
+            var light = flare != null ? flare.GetComponentInChildren<Light>(true) : null;
+            if (light == null)
+                continue;
+            foreach (var player in AllPlayers(runner))
+            {
+                if (pinObjects.TryGet(player, out var pinObject) && pinObject != null && pinObject.Pointer == pin.networkObject.Pointer)
+                    flares.Add((player, SlotOf(Players.PlayerColors, player), flare, light.color, flare.activeInHierarchy));
+            }
+        }
+        return flares;
+    }
+
+    // Players from the 5th on whose flare isn't wholly in their colour, with the parts that aren't: the light, the three
+    // smoke particle systems and the stick's texture
+    static List<string> OffColourFlares(NetworkRunner runner)
+    {
+        var off = new List<string>();
+        foreach (var flare in PinFlares(runner).Where(f => f.Slot >= Plugin.VanillaMaxPlayers))
+        {
+            var colour = UIManager.GetPlayerColor(flare.Player);
+            var parts = new List<(string Part, Color? Colour)>();
+            foreach (var light in flare.Flare.GetComponentsInChildren<Light>(true))
+                parts.Add((light.name, light.color));
+            var smoke = flare.Flare.GetComponentsInChildren<ParticleSystem>(true).Where(PlayerColourPatches.IsFlareSmoke).ToList();
+            if (smoke.Count != 3)
+                parts.Add(($"{smoke.Count} smoke particle systems", null));
+            foreach (var particles in smoke)
+                parts.Add((particles.name, particles.main.startColor.m_ColorMax));
+            foreach (var renderer in flare.Flare.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var texture = renderer.sharedMaterial.GetTexture(PlayerColourPatches.FlareStickTexture)?.TryCast<Texture2D>();
+                parts.Add((renderer.name, texture != null && texture.isReadable ? texture.GetPixel(0, 0) : null));
+            }
+            var wrong = parts.Where(p => p.Colour == null || !SameColour(p.Colour.Value, colour)).ToList();
+            if (wrong.Count > 0)
+                off.Add($"{Players.GetPlayerName(flare.Player)} ({colour}): " +
+                        string.Join(", ", wrong.Select(p => $"{p.Part} {p.Colour?.ToString() ?? "-"}")));
+        }
+        return off;
+    }
+
+    static bool SameColour(Color a, Color b) =>
+        Mathf.Abs(a.r - b.r) < 0.01f && Mathf.Abs(a.g - b.g) < 0.01f && Mathf.Abs(a.b - b.b) < 0.01f;
 
     // With -otu-selftest-screenshots, saves the screen to OverTheHillUnlimited-screenshots (in BepInEx/ or UserData/). Yield the result:
     // Unity captures at the end of the frame, so the script waits for it before changing what's on screen.
