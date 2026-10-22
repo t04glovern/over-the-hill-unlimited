@@ -29,7 +29,7 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Tents at camp with 8+ players | The tent circle widens so tents don't overlap (self-test with 16) |
 | Discord voice chat with 5+ players | An emitter for every other player (self-test of the slots; audio needs a real call) |
 | Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
-| Colours for players 5+ | Their own colours on Windows (self-test); the game's default colour on native Linux |
+| Colours for players 5+ | Their own colours, and pin flares to match, on Windows (self-test); the game's default colour and player 4's red flare on native Linux |
 | MelonLoader 0.7.3 | The same mod, built from the same source: passes the self-test with 16 players and uses the same modded servers as the BepInEx version. Playing across loaders hasn't been tested with real players yet |
 | Native Linux (not Proton) | Joining crashed in 0.1.0; fixed in 0.1.1, untested |
 | Players without the mod | Kept out: modded and unmodded players don't see each other's servers (verified: modded lobby lists 0 vanilla servers) |
@@ -227,10 +227,13 @@ The map also keeps `pinpointIndicatorsRectTransforms`, parallel to its pins, and
 the first 4 pins. A prefix on `MapView.UpdatePlayerPinpoint` adds the rects for the padded pins.
 
 The compass builds its icons as it needs them, so it handles any number of players. Player notifications come from a
-shared pool, not one per slot. Player colours (`UIManager.GetPlayerColor`) and pin flares come from a switch on the
-player's colour slot, with a default for anything past the 4th. `PlayerColourPatches` gives colour slots 5 to 16 their
-own colours, on Windows only. `GetPlayerColor` returns a 16-byte `Color`, which native Linux returns in registers, and
-that's the kind of struct Il2CppInterop's trampolines get wrong there. Flares keep the default.
+shared pool, not one per slot. Player colours (`UIManager.GetPlayerColor`) and pin flares
+(`WorldSpacePinpoint.GetPlayerFlare`) come from a switch on the player's colour slot, with a default for anything past
+the 4th: one shared colour, and player 4's red flare. `PlayerColourPatches` gives colour slots 5 to 16 their own colours,
+on Windows only. `GetPlayerColor` returns a 16-byte `Color`, which native Linux returns in registers, and that's the kind
+of struct Il2CppInterop's trampolines get wrong there. For their flares it hands the game a copy of the red flare in the
+slot's colour, made once per slot. The game's four flares differ only in their light, the start colour of their smoke
+and the flat-colour texture on the stick, so those are what the copy changes.
 
 ### 4. Game data sized for 4 players
 
@@ -462,7 +465,7 @@ src/OverTheHillUnlimited/             the BepInEx build, and the source both bui
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16
-    PlayerColourPatches.cs            colours for players 5 and up (Windows)
+    PlayerColourPatches.cs            colours and pin flares for players 5 and up (Windows)
     SessionDiagnosticsPatches.cs      VerboseLogging output
   Testing/
     SelfTest.cs                       the -otu-selftest script and its checks
@@ -541,7 +544,7 @@ Logs:
 - [x] Pad the pause menu and map too, so players 5 and up show there
 - [x] A self-test that exercises every per-player path with bot players, without needing other people
 - [x] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
-- [x] Colours of their own for players 5 and up (Windows)
+- [x] Colours of their own for players 5 and up, and pin flares to match (Windows)
 - [x] A MelonLoader build from the same source, so players can use it alongside the game's other MelonLoader mods
 - [ ] Play across loaders with real players (BepInEx and MelonLoader players in one session)
 
