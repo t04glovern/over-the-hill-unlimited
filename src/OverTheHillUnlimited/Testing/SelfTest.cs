@@ -42,7 +42,9 @@ internal sealed class Until
 /// mod loader's log and to OverTheHillUnlimited-selftest.txt (in BepInEx/, or UserData/ with MelonLoader), and the
 /// game quits afterwards unless -otu-selftest-stay is also given. -otu-selftest-area &lt;name&gt; picks the area
 /// (default: the first one), -otu-selftest-players &lt;n&gt; the session size (default: MaxPlayers), and
-/// -otu-selftest-screenshots saves screenshots along the way.
+/// -otu-selftest-screenshots saves screenshots along the way. -otu-selftest-areas-only runs only the checks that park
+/// the party at portals, cabins and camps (SelfTest.Areas.cs), and -otu-selftest-all-zones has those check every
+/// cabin in the area.
 /// </summary>
 internal sealed partial class SelfTest
 {
@@ -52,6 +54,7 @@ internal sealed partial class SelfTest
     const string AreaFlag = "-otu-selftest-area";
     const string ScreenshotsFlag = "-otu-selftest-screenshots";
     const string PlayersFlag = "-otu-selftest-players";
+    const string AreasOnlyFlag = "-otu-selftest-areas-only";
 
     readonly IModLog _log;
     readonly LogWatcher _watcher;
@@ -61,6 +64,7 @@ internal sealed partial class SelfTest
     int _failed;
     int _screenshots;
     bool? _savedMode;
+    Dictionary<string, DateTime> _saveFileTimes;
     readonly FourSlotProbe _probe = HasArgument(FourSlotProbe.Flag) ? new FourSlotProbe() : null;
 
     public SelfTest(IModLog log)
@@ -77,6 +81,15 @@ internal sealed partial class SelfTest
         _savedMode = Plugin.ConfigExpandPlayerSlots.Value;
 
         Section("Setup");
+        // The run leaves the player's progress as it was (SaveIsolationPatches); prove it before hosting
+        _saveFileTimes = SaveIsolationPatches.SaveFileTimes();
+        Do("the game is asked to save", () => OverlandSaver.SaveGame());
+        if (!Check("it doesn't, so your progress stays as it was", () => SaveIsolationPatches.WrittenSince(_saveFileTimes).Count == 0,
+                () => $"written: {string.Join(", ", SaveIsolationPatches.WrittenSince(_saveFileTimes))}"))
+        {
+            Finish();
+            yield break;
+        }
         if (!Check("the game's networked layout matches the mod", () => UnlimitedMode.Available))
         {
             Finish();
@@ -107,7 +120,16 @@ internal sealed partial class SelfTest
         };
         Do($"host '{area.name}' for {maxPlayers} players", () => GameStateManager.Instance.PushState(new StateStartGame(context)));
         yield return new Until("session started", () => Players != null && Players.GetPlayerCount() >= 1, 300);
-        yield return new Until("lobby open", () => GameStateManager.Instance.PeekState()?.TryCast<StateLobbyMenu>() != null, 120);
+        // Hosting an area this profile hasn't unlocked, the lobby opens behind a notice that the session can't unlock
+        // areas; it's closed the way its one button does
+        yield return new Until("lobby open", () => GameStateManager.Instance.PeekState()?.TryCast<StateLobbyMenu>() != null ||
+                                                   GameStateManager.Instance.PeekState()?.TryCast<StateNoAreaUnlockModal>() != null, 120);
+        if (GameStateManager.Instance.PeekState()?.TryCast<StateNoAreaUnlockModal>() != null)
+        {
+            Record($"INFO {_section}: this profile hasn't unlocked '{area.name}', so the game says this session can't unlock areas");
+            Do("that notice is closed", () => GameStateManager.Instance.PopState());
+            yield return new Until("lobby open", () => GameStateManager.Instance.PeekState()?.TryCast<StateLobbyMenu>() != null, 30);
+        }
         yield return new Wait(3);
         EndSection();
 
@@ -182,31 +204,47 @@ internal sealed partial class SelfTest
         EndSection();
 
         Section("Spawn in the map");
-        // The way players leave the lobby: Join opens the map, and picking a spawnable point of interest raises
-        // StateMapScreen.ReadyToSpawn, which spawns the local car there and closes the lobby. Bots have no client of
-        // their own, so the host spawns them through the same RPC their client would send.
+        // Bots have no client of their own, so the host spawns them through the same RPC their client would send, one
+        // after another while their cars are still in the lobby, as players who join before the host do: once the host
+        // leaves the lobby, the cars left in it fall. Then the host leaves the lobby the way players do: Join opens the
+        // map, and picking a spawnable point of interest raises StateMapScreen.ReadyToSpawn, which spawns the local car
+        // there and closes the lobby.
         var start = FindStartingPoint();
         if (!Check("a point of interest to start at", () => start != null))
         {
             Finish();
             yield break;
         }
+        int startIndex = SceneReferences.Instance.pointsOfInterest.IndexOf(start);
+        foreach (var step in SpawnOneByOne(runner, bots, startIndex))
+            yield return step;
+        yield return new Wait(LandingTime);
+        foreach (var step in CheckLanding(runner, bots, start))
+            yield return step;
         Do("Join opens the map", () => GameStateManager.Instance.PushState(new StateMapScreen()));
         yield return new Wait(3);
         Do($"host picks '{start.name}' on the map", () => GameStateManager.Instance.PeekState().TryCast<StateMapScreen>().MapControllerOnRequestSpawn(start));
         yield return new Until("host spawned in the map", () => Players.SpawnedInMap(runner.LocalPlayer), 60);
-        int startIndex = SceneReferences.Instance.pointsOfInterest.IndexOf(start);
-        Do("bots spawn there too", () => bots.ForEach(bot => SpawnManager.Instance.RPC_RespawnPlayer(bot, startIndex)));
-        yield return new Wait(5);
+        yield return new Wait(LandingTime);
+        Check("the host's car landed on its wheels", () => Tilt(runner, runner.LocalPlayer) < MaxLandedTilt,
+            () => $"tilted {Tilt(runner, runner.LocalPlayer):F0}°");
         Check("the lobby has closed", () => !StateLobbyMenu.IsInLobby);
         Check("every player spawned in the map", () => AllPlayers(runner).All(p => Players.SpawnedInMap(p)),
             () => string.Join(", ", AllPlayers(runner).Where(p => !Players.SpawnedInMap(p)).Select(p => Players.GetPlayerName(p))));
-        Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < 60),
+        Check($"every car is at '{start.name}'", () => AllPlayers(runner).All(p => Vector3.Distance(CarPosition(runner, p), start.transform.position) < NearPlace),
             () => string.Join(", ", AllPlayers(runner).Select(p => $"{Players.GetPlayerName(p)} {Vector3.Distance(CarPosition(runner, p), start.transform.position):F0} m")));
         Check($"'{start.name}' has a spawn point for every player, a car's length apart", () => SpawnSpacing(start, AllPlayers(runner).Count) >= MinSpawnSpacing,
             () => $"{start.spawnPoints.Count} spawn points, closest {SpawnSpacing(start, AllPlayers(runner).Count):F1} m apart");
         Record($"INFO {_section}: after landing, the closest two cars are {ClosestCars(runner):F1} m apart");
         EndSection();
+
+        if (HasArgument(AreasOnlyFlag))
+        {
+            foreach (var step in TestGatheringAreas(runner, OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position))
+                yield return step;
+            Finish();
+            yield break;
+        }
 
         Section("Free roam");
         var origin = OverlandNetworkRunner.Instance.LocalPlayerNetworkObject.transform.position;
@@ -290,6 +328,8 @@ internal sealed partial class SelfTest
             yield return step;
         foreach (var step in TestVoiceChatSlots())
             yield return step;
+        foreach (var step in TestGatheringAreas(runner, origin))
+            yield return step;
         // Last in the world: it replaces every car, the host's included
         foreach (var step in TestPortalArrival(runner))
             yield return step;
@@ -303,6 +343,7 @@ internal sealed partial class SelfTest
         }
         yield return new Wait(3);
         Check("only the host is left", () => Players.GetPlayerCount() == 1, () => $"{Players.GetPlayerCount()} registered");
+        Check("the group rule is off", () => !PartyGatheringPatches.Active);
         EndSection();
 
         Section("Back to the main menu");
@@ -453,6 +494,7 @@ internal sealed partial class SelfTest
         Check("Fusion's default player count is back to the vanilla 4",
             () => NetworkProjectConfig.Global.Simulation.PlayerCount == Plugin.VanillaMaxPlayers,
             () => $"{NetworkProjectConfig.Global.Simulation.PlayerCount}");
+        Check("the group rule is off", () => !PartyGatheringPatches.Active);
         EndSection();
     }
 
@@ -561,6 +603,15 @@ internal sealed partial class SelfTest
 
     void Finish()
     {
+        PartyGatheringPatches.GameRulesOnly = false;
+
+        if (_saveFileTimes != null)
+        {
+            _section = "Your progress";
+            Record($"INFO {_section}: the game tried to save {SaveIsolationPatches.SkippedSaves} times during the run, and didn't");
+            Check("no file in the save folder was written", () => SaveIsolationPatches.WrittenSince(_saveFileTimes).Count == 0,
+                () => $"written: {string.Join(", ", SaveIsolationPatches.WrittenSince(_saveFileTimes))}");
+        }
         string summary = _failed == 0 ? $"Self-test PASSED: {_passed} checks" : $"Self-test FAILED: {_failed} of {_passed + _failed} checks failed";
         _results.Add(summary);
         _log.LogMessage(summary);
@@ -568,7 +619,7 @@ internal sealed partial class SelfTest
         {
             File.WriteAllLines(Path.Combine(Plugin.DataDirectory, "OverTheHillUnlimited-selftest.txt"), _results);
         }
-        catch (IOException e)
+        catch (Exception e)
         {
             _log.LogWarning($"Couldn't write the results file: {e.Message}");
         }
@@ -619,6 +670,10 @@ internal sealed partial class SelfTest
     // Spawn points a car's length apart, so nobody arrives on top of anyone else. Where the cars end up after landing
     // depends on physics, so that's only reported.
     const float MinSpawnSpacing = 4f;
+
+    // A car spawned at a place is no further from its middle than the spawn points CabinSpawnPointPatches adds, plus how
+    // far the game's own are from the middle
+    const float NearPlace = CabinSpawnPointPatches.MaxReach + 30;
 
     // The closest two of the spawn points the first n players would be given
     static float SpawnSpacing(SpawnablePointOfInterest pointOfInterest, int players)

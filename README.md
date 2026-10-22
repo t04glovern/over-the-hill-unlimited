@@ -23,10 +23,11 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that raises the 4-player co-
 | Lobby name labels, pause menu, map, car repair and tool selection menus, car health and winch anchor markers, compass | Room for 16 players; passes the [self-test](#testing-without-other-players) with 8 players, untested with real players. Pause menu rows 5+ open their player options (fixed in 0.3.0) |
 | Lobby with 5+ cars | Extra rows behind the first, and the camera rises to show every car; verified by the self-test with 16 |
 | Spawning in the map with 5+ players | Extra spawn points around each cabin, so cars don't land on top of each other; verified by the self-test with 16 |
-| Arriving through a portal with 5+ players | Players past the 4th used to arrive with no car; now everyone gets a spot (self-test with 16) |
+| Arriving through a portal with 5+ players | Players past the 4th used to arrive with no car, and from 0.4.0 to 0.4.4 the ones arriving by the Valley's boat landed in the lake; now everyone gets a spot on dry ground (self-test with 16, at every portal) |
 | Winching with 5+ cars (one car, a meteorite, a recovery vehicle) | Room for 16 winches on each (self-test with 6 winches) |
 | Meteorites with 5+ players | Each involved player gets the 4-player share of the pebbles, more meteorites in the map, and a wider reach for counting as involved (self-test with 16) |
 | Tents at camp with 8+ players | The tent circle widens so tents don't overlap (self-test with 16) |
+| Gathering the party with 5+ players (portals such as the boat, cabin camping, the camp tool) | The party counts once it's gathered as one group; the self-test parks 16 cars at each portal and cabin, in layouts the game turns down, and checks the group rule counts them, stops once one drives off, and doesn't let someone at the back start travel. Tested in every area; untested with real players |
 | Discord voice chat with 5+ players | An emitter for every other player (self-test of the slots; audio needs a real call) |
 | Game updates | The mod checks the game's networked layout at startup and stays vanilla if it changed |
 | Colours for players 5+ | Their own colours, and pin flares to match, on Windows (self-test); the game's default colour and player 4's red flare on native Linux |
@@ -117,7 +118,7 @@ To uninstall, clear the launch option, then untick the compatibility option to g
 
 The settings file is created on first launch: `BepInEx/config/OverTheHillUnlimited.cfg` with BepInEx, or
 `UserData/MelonPreferences.cfg` with MelonLoader. MelonLoader keeps them all under one `[OverTheHillUnlimited]`
-section, without the `General.`, `Meteorites.` and `Debug.` prefixes below.
+section, without the `General.`, `Meteorites.`, `Areas.` and `Debug.` prefixes below.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -125,11 +126,13 @@ section, without the `General.`, `Meteorites.` and `Debug.` prefixes below.
 | `General.ExpandPlayerSlots` | `true` | Unlimited mode, the same setting as the **Unlimited mod servers** checkbox in the server browser. Off means vanilla behaviour, for playing with people who don't have the mod (4 players max). |
 | `Meteorites.PebbleShareMaxPlayers` | `4` | A meteorite's pebbles are split between the players involved. With more involved than this, each gets the share for this many instead. `16` splits them between everyone, as the game does. |
 | `Meteorites.PlayersPerExtraMeteorite` | `2` | With more than 4 players, one more meteorite in the map for every this many players past 4. `0` keeps the game's 2 or 3. |
-| `Meteorites.ScaleRewardReach` | `true` | With more than 4 players, widen the 10 m distance for counting as involved in pulling a meteorite out (14 m for 8, 20 m for 16). |
+| `Meteorites.ScaleRewardReach` | `true` | With more than 4 players, widen the 10 m distance for counting as involved in pulling a meteorite out (14 m for 8, 20 m for 16), and show it in the ring around the meteorite. |
+| `Areas.GatherAsGroup` | `true` | With more than 4 players, the party counts as at a portal (such as the boat), in a cabin's camping area, or close enough to camp, once it's gathered as one group: every car in the area, or linked to it by a chain of cars each within 15 m of the next. Whoever presses Interact still has to be in the area. Travel needs this on for whoever presses and for the host; camping goes by the camper's. |
 | `Debug.VerboseLogging` | `false` | Log the session size and player list as players join and leave. Useful for testing. |
 
 The meteorite settings are the host's: the host decides the rewards and spawns, so other players' settings don't
-matter. See [Meteorites for more than 4 players](#5-meteorites-for-more-than-4-players).
+matter. See [Meteorites for more than 4 players](#5-meteorites-for-more-than-4-players). `Areas.GatherAsGroup` works on
+each player's own game, so leave it the same for everyone. See [Room for everyone](#6-room-for-everyone).
 
 ## How it works
 
@@ -249,12 +252,30 @@ the end, puts cars on top of each other, or drops players. Each gets room for 16
 - Each place players spawn in the map, such as a cabin, has a few spawn points (4 at the starting cabin). Once they're
   taken, `SpawnablePointOfInterest.GetNextFreeSpawnPoint` puts everyone else on the first one, on top of whoever is
   there, which is every player from the 5th on when a session starts. `CabinSpawnPointPatches` adds spawn points
-  around the game's own the first time each place is used. These places sit among trees and rocks, so each extra spot
-  must be on terrain, fairly level, a car's length from the others, and clear of anything solid.
+  around the game's own the first time each place is used, out to about 105 m. These places sit among trees and
+  rocks, so each extra spot is checked:
+  - fairly level (15° at most, so a car across the slope doesn't tip as it lands), and a car's width beside and a
+    car's length ahead of every other spot;
+  - on the terrain, or, where the game's own spot is on a dock, deck or bridge, on one at about its height; never on
+    a rock or a roof, and never under water;
+  - clear of anything solid around the car, with open sky above it (a rock's collider is a mesh, which a box inside a
+    big boulder doesn't touch);
+  - not at the brink of a drop, where a car bouncing as it lands goes over the edge.
+
+  Each car is placed upright, at its own spot's height above the ground (0.3 to 1.5 m), found from just above the
+  game's spot so a roof or a tunnel's ceiling over it doesn't count. A car with nobody driving rolls a few metres
+  after landing on a slope, so spots with room to roll come first: no water within 10 m, no ground there falling away
+  more steeply than about 20°, nothing solid in the 12 m downhill, and no other spot there. Where those run out
+  (among rocks, on a small plateau), it takes spots without, and then fills any slots still empty with rows in front
+  of and behind the game's own spots: on clear, dry ground where there's some, and only then anywhere. A car that
+  might roll is better than one dropped on top of another.
+
+  Up to 0.4.4 spots were measured from the terrain, which under the Valley's boat is the lakebed, so players 5 to 16
+  arriving by boat landed in the lake. Now the boat keeps the game's own 4 spots and everyone else lands on the
+  shore.
 - Portals have 4 spawn points too, and arriving through one is worse: `Portal.AssignPlayersToSpawnPoints` gives each
   player the spawn point at their position in `ActivePlayers` and skips anyone past the end, who then has no car and
-  can't respawn. `CabinSpawnPointPatches` pads portals before that, and fills any slots the search couldn't with rows
-  behind the portal's own points.
+  can't respawn. `CabinSpawnPointPatches` pads portals before that, the same way.
 - `Meteorite.winchedPlayersPullDirections` is made as a `Vector2[4]`, but extraction writes a pull direction for every
   car winched to the meteorite, so a 5th winch threw on the host every tick and the meteorite never came out. It's
   grown before each winch is added.
@@ -288,6 +309,40 @@ carries the 4-player balance on. The host decides all three, so only the host ne
 - **Reach.** Only cars within `prizeAwardMaxDistance` (10 m, about two car lengths) of the meteorite when it comes out
   count as involved, unless they're winched to it. That grows with the square root of the number of players past 4
   (14 m for 8, 20 m for 16; `ScaleRewardReach`), so the area around the meteorite grows with the number of cars.
+  The ring the meteorite shows on the ground for its reach (`MeteoriteVisuals.prizeAwardMaxDistance`) grows with it
+  (`MeteoriteReachRingPatches`), and follows players joining and leaving.
+
+### 6. Room for everyone
+
+Some places need the whole party together, and the game sizes them for about 4 cars:
+- **Travelling to another area** needs every car in the portal's trigger, a sphere 10 to 12 m in radius
+  (`Portal.AllPlayersInArea`: your game checks it to show "Proceed through the portal" and let you press it, and the
+  host's checks it again before sending everyone). The Valley's portal is a boat at the end of a one-car-wide dock:
+  the deck and the end of the dock hold 4 cars, so the rest queue down the dock and along the shore.
+- **Camping at a cabin** needs every car in its 40 by 40 m camping area (`CabinCampTrigger.CheckPartyIsInCampingArea`).
+- **Camping anywhere else** needs every car within 15 m of whoever places the campfire (`CampManager.CheckPartyIsCloseBy`,
+  `CampingConfig.maxPartyMembersDistance`).
+
+No circle fits 16 cars on a dock or a summit, so `PartyGatheringPatches` adds a second way to count: with more than 4
+players, the party is there once it's gathered as one group. Every car has to be in the game's own area, or linked to
+it by a chain of cars, each within 15 m of the next across the ground (about two car lengths apart). The cars in the
+area count as linked wherever they are in it, as the game counts them, so a queue on each side of a portal counts
+too. The areas keep the game's size, and the game's own answer still counts. A postfix on each check works this out
+from the cars' positions, which every player's game knows. Some details:
+- Interact is one input for the whole game, and the portal relies on "everyone is in the area" to mean whoever
+  pressed it is too. So on your side, the group only counts while your own car is in the portal: someone at the back
+  of the queue can't send everyone.
+- The host allows 2 m more between cars when it decides, since its view of other cars is a moment behind yours.
+- A car joining the group outside the portal's trigger doesn't refresh its prompt the way a car entering it does, so
+  while the prompt is up it's refreshed once the answer has differed from the one on screen for a second.
+- Camping goes by the camper's setting; travel needs it on for whoever presses and for the host.
+- Neither patch class is needed to play, so each is applied on its own: if a game update breaks one, it's left out
+  and the rest of the mod carries on.
+
+Everything else counts each player on their own (scenic points, crates, cabins being found, merchants, trails), so
+those keep the game's size: each player only needs to get there once. A meteorite's reward is shared between
+whoever is near it, without having to be in one group, so it keeps its own wider reach (see
+[Meteorites for more than 4 players](#5-meteorites-for-more-than-4-players)).
 
 ### Why everyone needs the mod
 
@@ -390,9 +445,12 @@ Launch the game with `-otu-selftest` and it tests itself:
 3. It joins bot players through the game's own join path until the session holds `MaxPlayers` (8 by default, or
    `-otu-selftest-players <n>`).
 4. In the lobby, it checks that every car can be seen from the lobby camera, not out of view or hidden behind another
-   car. Then everyone spawns at the area's starting cabin the way players do (the host through the map's spawn
-   request), and it checks that the cabin has a spawn point for every player, a car's length apart. Where the cars
-   end up after landing depends on physics, so that's only logged.
+   car. Then everyone spawns at the area's starting cabin the way players do (each bot through the spawn request its
+   client would send, one after another, then the host through the map), and it checks that the cabin has a spawn
+   point for every player, a car's length apart, and that every car landed on dry ground, on its wheels, and not on
+   top of another. How far apart the cars end up after landing depends on physics, so that's only logged, as is how
+   far the bots' cars roll afterwards: a real player's idle car holds still on its automatic handbrake, but a bot
+   sends no input, so its car rolls freely on a slope (and is stopped before it spawns anywhere).
 5. It exercises everything else that indexes per-player data: the player registry, name labels, busy states, map
    pins, portable winch anchors and their HUD markers, meteorite setups, the compass, the car health HUD, and the map,
    pause, car repair and tool selection menus. In the pause menu, it clicks a bot's padded row and checks that their
@@ -401,15 +459,24 @@ Launch the game with `-otu-selftest` and it tests itself:
    extraction starts, and every rope is released. For the meteorite, it checks the map has the right number of
    meteorites for the session, and that when it comes out every winched car is rewarded with the 4-player share and
    the reach is widened for the number of players (the host's own profile is left out). It lays out a tent per
-   player around a campfire and checks none overlap, fills voice chat with 15 other participants, and finally sends
-   everyone through a portal and checks every player arrives with a car, on spawn points a car's length apart.
-7. It removes the bots and quits to the main menu.
+   player around a campfire and checks none overlap, and fills voice chat with 15 other participants.
+   Where the whole party has to gather (each of the area's portals, the camping areas of 3 cabins, and around the
+   host as camper), every car parks, the host's included, and the game's own check is asked with and without the
+   group rule: where the game puts everyone arriving through a portal or respawning at a cabin (checking every car
+   lands on dry ground and on its wheels), as close as they fit, gathered at the area's edge (where only the group rule counts them, and it has to
+   decide at least one layout), with the host at the back of a portal's queue (where the host can't start travel but
+   the host's decision still counts the party), and with one car driven off out of reach and out of the area (where
+   nothing counts). Each answer is checked against the rule worked out independently from where the cars ended up.
+   Cars park on open, level ground clear of roofs, rocks, trees and water, and every car is checked to have got
+   there. `-otu-selftest-all-zones` tests every cabin. Finally it sends everyone through a portal and checks every
+   player arrives with a car, on dry ground and on its wheels, on spawn points a car's length apart.
+7. It removes the bots, checks the group rule is off, and quits to the main menu.
 8. In the server browser, it checks that the **Unlimited mod servers** checkbox is disabled until the lobby connects,
    and that other players' Unlimited servers for more than 4 players aren't hidden (a real check only while some are
    up in your region). Then it clicks the checkbox through its real click handler, off and back on, and checks that
    the lobby reconnects each time.
 9. It hosts again with Unlimited mode off and checks the session stays vanilla (4 players, nothing expanded, Fusion's
-   default player count back to 4).
+   default player count back to 4, the group rule off).
 10. It restores your saved Unlimited mode setting and quits.
 
 It also logs how long the expanded getters take compared with an unpatched one.
@@ -417,9 +484,17 @@ It also logs how long the expanded getters take compared with an unpatched one.
 Each section also fails if the game or the mod loader logged an error during it. Results go to the loader's log (source
 `OTU Self-test`, which MelonLoader shows as `OTU_Self-test`) and to `OverTheHillUnlimited-selftest.txt`: `BepInEx/LogOutput.log` and `BepInEx/` with BepInEx,
 `MelonLoader/Latest.log` and `UserData/` with MelonLoader. It runs the same on both. Add `-otu-selftest-stay` to keep the
-game open afterwards, `-otu-selftest-area <name>` to host somewhere other than the first area, or
-`-otu-selftest-screenshots` to save screenshots of the lobby, free roam, map, pause menu and server browser to
+game open afterwards, `-otu-selftest-area <name>` to host somewhere other than the first area,
+`-otu-selftest-areas-only` to run only the parking checks above, or `-otu-selftest-screenshots` to save screenshots of
+the lobby, free roam, map, pause menu and server browser, and each parked group from above, to
 `OverTheHillUnlimited-screenshots/` next to the results.
+
+The self-test hosts with your own profile, so you can test any area your save has, but it leaves your progress as it
+was (`SaveIsolationPatches`). For the whole run the game doesn't write its save, settings or fog of war, and doesn't
+unlock achievements or change Steam stats; the profile still loads as usual. It proves this at the start, by asking
+the game to save and checking no file in `Documents/My Games/over the hill/Saves` was written, and checks again at
+the end. That's why it can unlock cabins for the run and let the host's car reach things. Steam itself still
+rewrites its small `steam_autocloud.vdf` files when the game launches.
 
 To run it from a shell instead of Steam (Steam must still be running):
 
@@ -462,6 +537,8 @@ src/OverTheHillUnlimited/             the BepInEx build, and the source both bui
     ItemRecoveryWinchPatches.cs       more than 4 winches on a recovery vehicle
     VoiceChatCapacityPatches.cs       voice chat emitters for every player
     MeteoriteBalancePatches.cs        pebble shares, meteorite count and reach for more than 4 players
+    PartyGatheringPatches.cs          the party counts as gathered as one group (portals, cabin camping, camp tool)
+    MeteoriteReachRingPatches.cs      a meteorite's reach ring shows the widened reach
     ModdedLobbyPatches.cs             separate Photon AppVersion for modded players
     ServerBrowserTogglePatches.cs     Unlimited mod servers checkbox in the server browser
     PerPlayerUiPatches.cs             UI with one element per player, padded to 16
@@ -470,7 +547,9 @@ src/OverTheHillUnlimited/             the BepInEx build, and the source both bui
   Testing/
     SelfTest.cs                       the -otu-selftest script and its checks
     SelfTest.World.cs                 its checks for winches, tents, voice chat and portals
+    SelfTest.Areas.cs                 its checks that park the party at portals, cabins and camps
     SelfTestRunner.cs                 drives the script frame by frame
+    SaveIsolationPatches.cs           keeps a self-test run out of your save, fog of war and achievements
     FourSlotProbe.cs                  -otu-selftest-probe: lists every list or array still holding 4
     BotPlayers.cs                     fake players for the self-test
     LogWatcher.cs                     collects game and mod loader errors per test section
@@ -546,7 +625,9 @@ Logs:
 - [x] Retest 5+ real players with everyone on the latest version, to cover what bots can't (replication to clients)
 - [x] Colours of their own for players 5 and up, and pin flares to match (Windows)
 - [x] A MelonLoader build from the same source, so players can use it alongside the game's other MelonLoader mods
+- [x] Room for the whole party where everyone has to gather (the boat and other portals, cabin camping, the camp tool)
 - [ ] Play across loaders with real players (BepInEx and MelonLoader players in one session)
+- [ ] Take 5+ real players through the boat and a cabin camp
 
 ## Credits
 
