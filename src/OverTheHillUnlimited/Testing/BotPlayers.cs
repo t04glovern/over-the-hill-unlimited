@@ -93,10 +93,15 @@ public class BotPlayerObjectPatch
 /// <summary>
 /// Adds the bots to NetworkRunner.ActivePlayers, which the car repair and tool selection menus, camp repairs and
 /// meteorite spawning iterate. Applied only in self-test runs.
+///
+/// The patch is on Simulation.ActivePlayers, which NetworkRunner.ActivePlayers forwards to. Since the game's
+/// 13 November 2026 update, IL2CPP inlines the runner's getter into the game's callers, so a patch on the runner's
+/// getter is never reached. The simulation's getter is virtual, so callers still go through it. The self-test hosts,
+/// and a host's simulation uses this base implementation (only Simulation.Client overrides it).
 /// </summary>
 public class BotActivePlayersPatch
 {
-    [HarmonyPatch(typeof(NetworkRunner), nameof(NetworkRunner.ActivePlayers), MethodType.Getter)]
+    [HarmonyPatch(typeof(Simulation), nameof(Simulation.ActivePlayers), MethodType.Getter)]
     [HarmonyPostfix]
     static void AddBots(ref Il2CppSystem.Collections.Generic.IEnumerable<PlayerRef> __result)
     {

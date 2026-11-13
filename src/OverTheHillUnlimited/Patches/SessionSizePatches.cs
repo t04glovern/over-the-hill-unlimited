@@ -26,9 +26,9 @@ public class SessionSizePatches
         _requestedMaxPlayers = Math.Min(gameSetupContext?.MaxPlayers ?? 0, ExpandedState.Capacity);
     }
 
-    [HarmonyPatch(typeof(NetworkRunner._StartGameModeCloud_d__481), nameof(NetworkRunner._StartGameModeCloud_d__481.MoveNext))]
+    [HarmonyPatch(typeof(NetworkRunner._StartGameModeCloud_d__486), nameof(NetworkRunner._StartGameModeCloud_d__486.MoveNext))]
     [HarmonyPrefix]
-    static void StartGameModeCloudPrefix(NetworkRunner._StartGameModeCloud_d__481 __instance)
+    static void StartGameModeCloudPrefix(NetworkRunner._StartGameModeCloud_d__486 __instance)
     {
         // Only the first step, before anything has read the args
         if (__instance.__1__state != -1)
