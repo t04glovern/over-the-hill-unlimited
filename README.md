@@ -519,6 +519,14 @@ Logs:
   `ContextUICreateServer.maxPlayersOptionsRange`.
 - Don't patch `NetworkBehaviour.DynamicWordCount`. IL2CPP deduplicated it, so its native code is shared with
   unrelated methods. Patch `NetworkBehaviourUtils.GetWordCount` instead.
+- The number in a compiler-generated type name, such as `NetworkRunner._StartGameModeCloud_d__486`, is the method's
+  position in its class, so it changes when a game update adds or removes a method before it. The build then fails
+  on that name; look up the new one in the interop assembly. The 13 November 2026 update (build 26489201) moved it
+  from 481 to 486.
+- A patch on a small non-virtual getter can stop being reached after a game update without any error: IL2CPP may
+  inline the getter into its callers, and the patch still applies to the now unused original. That update did this to
+  `NetworkRunner.ActivePlayers`, so the self-test adds its bots in `Simulation.ActivePlayers`, the virtual getter it
+  forwards to, which callers can only reach through the vtable.
 - The interop wrapper misreports `Nullable<int>` fields such as `StartGameArgs.PlayerCount` as 0. Check the session's
   real size with `NetworkRunner.SessionInfo.MaxPlayers` instead, as the self-test does.
 - `Object.Instantiate` copies serialized UnityEvents, but not C# event handlers the game adds in code. Before padding a
