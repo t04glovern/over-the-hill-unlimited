@@ -1,5 +1,7 @@
 using System;
+using System.Reflection;
 using HarmonyLib;
+using Il2CppInterop.Runtime.InteropTypes;
 using OverTheHillUnlimited.Networking;
 
 namespace OverTheHillUnlimited.Patches;
@@ -26,33 +28,69 @@ public class SessionSizePatches
         _requestedMaxPlayers = Math.Min(gameSetupContext?.MaxPlayers ?? 0, ExpandedState.Capacity);
     }
 
-    [HarmonyPatch(typeof(NetworkRunner._StartGameModeCloud_d__486), nameof(NetworkRunner._StartGameModeCloud_d__486.MoveNext))]
-    [HarmonyPrefix]
-    static void StartGameModeCloudPrefix(NetworkRunner._StartGameModeCloud_d__486 __instance)
+    /// <summary>
+    /// The prefix on the StartGameModeCloud state machine's MoveNext. The compiler names the state machine with a
+    /// number that changes whenever Fusion is rebuilt (&lt;StartGameModeCloud&gt;d__481 until the game's 13 November
+    /// 2026 update, d__486 since), and naming it in code stopped the mod loading on the new Fusion. So it's found by
+    /// name when the patch is applied, and its two fields are read by reflection.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class StartGameModeCloud
     {
-        // Only the first step, before anything has read the args
-        if (__instance.__1__state != -1)
-            return;
+        const string StateMachinePrefix = "_StartGameModeCloud_d__";
 
-        // A boxed copy: changes only reach Fusion once it's assigned back to the field
-        var args = __instance.args;
+        static Type _stateMachine;
+        static PropertyInfo _state;
+        static PropertyInfo _args;
 
-        // Fusion's default player count is raised on every modded peer, host or client, so their configs match. In
-        // vanilla mode it goes back to the game's own value, to match vanilla peers again.
-        var simulation = (args.Config ?? NetworkProjectConfig.Global)?.Simulation;
-        if (simulation != null)
+        static MethodBase TargetMethod()
         {
-            _vanillaSimulationPlayerCount ??= simulation.PlayerCount;
-            simulation.PlayerCount = UnlimitedMode.Enabled
-                ? Math.Max(_vanillaSimulationPlayerCount.Value, ExpandedState.Capacity)
-                : _vanillaSimulationPlayerCount.Value;
+            foreach (var nested in typeof(NetworkRunner).GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (!nested.Name.StartsWith(StateMachinePrefix, StringComparison.Ordinal))
+                    continue;
+                if (_stateMachine != null)
+                    throw new MissingMemberException($"More than one NetworkRunner.{StateMachinePrefix}* state machine");
+                _stateMachine = nested;
+            }
+            if (_stateMachine == null)
+                throw new MissingMemberException($"No NetworkRunner.{StateMachinePrefix}* state machine");
+
+            _state = _stateMachine.GetProperty("__1__state") ?? throw new MissingMemberException(_stateMachine.Name, "__1__state");
+            _args = _stateMachine.GetProperty("args") ?? throw new MissingMemberException(_stateMachine.Name, "args");
+            return AccessTools.Method(_stateMachine, "MoveNext") ?? throw new MissingMemberException(_stateMachine.Name, "MoveNext");
         }
 
-        if (!UnlimitedMode.Enabled || args.GameMode != GameMode.Host || _requestedMaxPlayers <= Plugin.VanillaMaxPlayers)
-            return;
+        static void Prefix(Il2CppObjectBase __instance)
+        {
+            object machine = _stateMachine.IsInstanceOfType(__instance)
+                ? __instance
+                : Activator.CreateInstance(_stateMachine, __instance.Pointer);
 
-        args.PlayerCount = new Il2CppSystem.Nullable<int>(_requestedMaxPlayers);
-        __instance.args = args;
-        Plugin.Logger.LogInfo($"Hosting a session for {_requestedMaxPlayers} players");
+            // Only the first step, before anything has read the args
+            if ((int)_state.GetValue(machine) != -1)
+                return;
+
+            // A boxed copy: changes only reach Fusion once it's assigned back to the field
+            var args = (StartGameArgs)_args.GetValue(machine);
+
+            // Fusion's default player count is raised on every modded peer, host or client, so their configs match.
+            // In vanilla mode it goes back to the game's own value, to match vanilla peers again.
+            var simulation = (args.Config ?? NetworkProjectConfig.Global)?.Simulation;
+            if (simulation != null)
+            {
+                _vanillaSimulationPlayerCount ??= simulation.PlayerCount;
+                simulation.PlayerCount = UnlimitedMode.Enabled
+                    ? Math.Max(_vanillaSimulationPlayerCount.Value, ExpandedState.Capacity)
+                    : _vanillaSimulationPlayerCount.Value;
+            }
+
+            if (!UnlimitedMode.Enabled || args.GameMode != GameMode.Host || _requestedMaxPlayers <= Plugin.VanillaMaxPlayers)
+                return;
+
+            args.PlayerCount = new Il2CppSystem.Nullable<int>(_requestedMaxPlayers);
+            _args.SetValue(machine, args);
+            Plugin.Logger.LogInfo($"Hosting a session for {_requestedMaxPlayers} players");
+        }
     }
 }

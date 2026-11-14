@@ -90,6 +90,7 @@ public partial class Plugin
         // Let the host pick more than 4 players and make Fusion honour it
         _harmony.PatchAll(typeof(CreateServerMenuPatch));
         _harmony.PatchAll(typeof(SessionSizePatches));
+        _harmony.PatchAll(typeof(SessionSizePatches.StartGameModeCloud));
 
         // Give the game's fixed-size networked player state room for more players
         _harmony.PatchAll(typeof(SessionPlayersCapacityPatches));
