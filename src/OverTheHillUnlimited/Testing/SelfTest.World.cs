@@ -121,6 +121,9 @@ internal sealed partial class SelfTest
             () => award == null ? "no award" : $"{award.Value.Reach:F1} m");
         Check("the meteorite's own reach is put back", () => Math.Abs(meteorite.prizeAwardMaxDistance - 10f) < 0.01f,
             () => $"{meteorite.prizeAwardMaxDistance:F1} m");
+        Check($"its ring on the ground shows the same {expectedReach:F1} m",
+            () => Math.Abs(MeteoriteReachRingPatches.ShownReach(meteorite) - expectedReach) < 0.1f,
+            () => $"{MeteoriteReachRingPatches.ShownReach(meteorite):F1} m");
         Do("the cars let go", () =>
         {
             pullers.ForEach(winch => winch.WinchRopeState = VehicleWinchSystem.WinchRopeStates.Relaxed);
@@ -289,9 +292,11 @@ internal sealed partial class SelfTest
         Do("everyone leaves through a portal", () => OverlandNetworkRunner.Instance.DespawnAllPlayers());
         yield return new Wait(2);
         Do($"everyone arrives at '{portal.name}'", () => portal.AssignPlayersToSpawnPoints());
-        yield return new Wait(5);
+        yield return new Wait(LandingTime);
         Check("every player has a car", () => AllPlayers(runner).All(p => HasCar(runner, p)),
             () => $"no car: {string.Join(", ", AllPlayers(runner).Where(p => !HasCar(runner, p)).Select(p => Players.GetPlayerName(p)))}");
+        foreach (var step in CheckLanding(runner, AllPlayers(runner), portal))
+            yield return step;
         Check($"'{portal.name}' has a spawn point for every player, a car's length apart", () => SpawnSpacing(portal, AllPlayers(runner).Count) >= MinSpawnSpacing,
             () => $"{portal.spawnPoints.Count} spawn points, closest {SpawnSpacing(portal, AllPlayers(runner).Count):F1} m apart");
         Record($"INFO {_section}: after landing, the closest two cars are {ClosestCars(runner):F1} m apart");

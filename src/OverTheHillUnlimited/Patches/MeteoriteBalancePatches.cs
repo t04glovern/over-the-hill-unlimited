@@ -64,6 +64,10 @@ public class MeteoriteBalancePatches
         __instance.prizeAwardMaxDistance = Reach(_vanillaReach, SessionPlayers);
     }
 
+    /// <summary>The meteorite's own reach, even while an award has it widened.</summary>
+    internal static float GameReach(Meteorite meteorite) =>
+        _collecting != null && meteorite.Pointer == _collecting.Pointer ? _vanillaReach : meteorite.prizeAwardMaxDistance;
+
     /// <summary>The distance within which cars count as involved, for a number of players.</summary>
     internal static float Reach(float vanillaReach, int players) =>
         Plugin.ConfigScaleMeteoriteReach.Value && players > Plugin.VanillaMaxPlayers
