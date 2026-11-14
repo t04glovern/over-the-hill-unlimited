@@ -149,6 +149,8 @@ Create Server menu ──► GameSetupContext.MaxPlayers ──X  game caps it a
   becomes 4. `SessionSizePatches` remembers the menu value in `OverlandNetworkRunner.StartGame`.
   It then writes that value into the copy of `StartGameArgs` that Fusion's `StartGameModeCloud` async method keeps in
   its state machine. That happens on the state machine's first `MoveNext()`, before the Photon room is created from it.
+  The state machine is found by name when the patch is applied, since its compiler-generated number changes with
+  Fusion updates (see [Gotchas](#gotchas)).
   (Patching `NetworkRunner.StartGame(StartGameArgs)` directly works on Windows but crashes on native Linux; see
   [Gotchas](#gotchas).)
 - It also raises Fusion's default player count, `NetworkProjectConfig.Simulation.PlayerCount` (shipped as 4), to 16
@@ -520,9 +522,10 @@ Logs:
 - Don't patch `NetworkBehaviour.DynamicWordCount`. IL2CPP deduplicated it, so its native code is shared with
   unrelated methods. Patch `NetworkBehaviourUtils.GetWordCount` instead.
 - The number in a compiler-generated type name, such as `NetworkRunner._StartGameModeCloud_d__486`, is the method's
-  position in its class, so it changes when a game update adds or removes a method before it. The build then fails
-  on that name; look up the new one in the interop assembly. The 13 November 2026 update (build 26489201) moved it
-  from 481 to 486.
+  position in its class, so it changes when a game update adds or removes a method before it. Naming that type in
+  code breaks the build, and a released build fails to load it, so the mod switches itself off. The 13 November 2026
+  update (build 26489201) moved it from 481 to 486. Find such types by name prefix when the patch is applied, as
+  `SessionSizePatches` does.
 - A patch on a small non-virtual getter can stop being reached after a game update without any error: IL2CPP may
   inline the getter into its callers, and the patch still applies to the now unused original. That update did this to
   `NetworkRunner.ActivePlayers`, so the self-test adds its bots in `Simulation.ActivePlayers`, the virtual getter it
